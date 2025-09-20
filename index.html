@@ -6,15 +6,15 @@
 <title>Upahaar - Flipbook</title>
 <style>
   :root { --bg:#f2efe9; --card:#fff; --muted:#6b6b6b; --accent:#0b6b3a; --accent-dark:#0a5a31; }
-  html,body { height:100%; margin:0; font-family:Inter, system-ui, Arial, sans-serif; background:var(--bg); -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+  html,body { height:100%; margin:0; font-family:Inter, system-ui, Arial, sans-serif; background:var(--bg); }
   .wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:28px; box-sizing:border-box; }
   .viewer { width:92vw; max-width:1100px; height:88vh; max-height:820px; background:var(--card); box-shadow:0 18px 50px rgba(0,0,0,0.12); border-radius:12px; overflow:hidden; position:relative; }
-  .page { width:100%; height:100%; display:flex; align-items:center; justify-content:center; transition: transform 0.5s cubic-bezier(.2,.9,.2,1), opacity 0.45s ease; position:absolute; top:0; left:0; pointer-events:none; background:#fff; }
-  .page img { max-width:100%; max-height:100%; display:block; border-radius:6px; user-select:none; }
+  .page { width:100%; height:100%; display:flex; align-items:center; justify-content:center; transition:transform .5s ease,opacity .45s ease; position:absolute; top:0; left:0; pointer-events:none; background:#fff; }
+  .page img { max-width:100%; max-height:100%; border-radius:6px; user-select:none; }
   .controls { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); display:flex; gap:10px; z-index:99; }
   .controls button { background:var(--accent-dark); color:white; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
-  .controls button:disabled { opacity:0.35; cursor:default; }
-  .counter { position:absolute; top:12px; right:12px; background:rgba(0,0,0,0.6); color:#fff; padding:6px 10px; border-radius:6px; font-size:13px; z-index:99; }
+  .controls button:disabled { opacity:.35; cursor:default; }
+  .counter { position:absolute; top:12px; right:12px; background:rgba(0,0,0,.6); color:#fff; padding:6px 10px; border-radius:6px; font-size:13px; z-index:99; }
   .sound-toggle { position:absolute; top:12px; left:12px; z-index:99; }
   .sound-toggle button { background:transparent; color:var(--accent-dark); border:1px solid #ddd; padding:6px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
   .share { position:absolute; top:12px; left:120px; display:flex; gap:8px; z-index:99; }
@@ -24,309 +24,141 @@
   .cover h1 { font-size:28px; margin:0 0 12px; color:var(--accent-dark); }
   .cover p { margin:6px 0 18px; color:var(--muted); }
   .cover button { background:var(--accent); color:#fff; padding:12px 20px; border:none; border-radius:8px; font-size:16px; cursor:pointer; }
-  @media (max-width:700px) {
-    .viewer { width:98vw; height:92vh; }
-    .share { left:90px; }
-    .cover h1 { font-size:20px; }
-  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="viewer" id="viewer" aria-live="polite">
-    <!-- Sound toggle -->
+  <div class="viewer" id="viewer">
     <div class="sound-toggle"><button id="soundBtn">🎵 Sound: ON</button></div>
-
-    <!-- Share buttons (restored) -->
     <div class="share">
       <button id="shareWhats">WhatsApp</button>
       <button id="shareLinked">LinkedIn</button>
       <button id="shareEmail">Email</button>
     </div>
-
-    <!-- Page counter -->
     <div class="counter" id="counter">0 / 0</div>
-
-    <!-- Prev / Next controls -->
-    <div class="controls" id="controls">
+    <div class="controls">
       <button id="prevBtn">◀ Prev</button>
       <button id="nextBtn">Next ▶</button>
     </div>
-
     <div class="note">Use ← → keys to flip. Click Start to enable music.</div>
-
-    <!-- Cover / Start -->
-    <div class="cover" id="cover" role="dialog" aria-label="Upahaar cover">
+    <div class="cover" id="cover">
       <h1>Upahaar — Corporate Gifting</h1>
       <p>Interactive catalogue — click Start to explore (gentle music plays)</p>
       <button id="startBtn">Start Flipbook ▶</button>
     </div>
-
   </div>
 </div>
 
 <script>
-/* === Minimal-change: restore UI and load 80 pages; music only updated ===
-   This script keeps previous IDs and structure exactly as expected.
-   Audio: marimba-like melodic + warm pad + soft pulse, synthesized.
-*/
-
 (function(){
-  // DOM refs
-  const viewer = document.getElementById('viewer');
-  const counter = document.getElementById('counter');
-  const prevBtn = document.getElementById('prevBtn');
-  const nextBtn = document.getElementById('nextBtn');
-  const soundBtn = document.getElementById('soundBtn');
-  const shareWhats = document.getElementById('shareWhats');
-  const shareLinked = document.getElementById('shareLinked');
-  const shareEmail = document.getElementById('shareEmail');
-  const cover = document.getElementById('cover');
-  const startBtn = document.getElementById('startBtn');
+  const viewer=document.getElementById('viewer');
+  const counter=document.getElementById('counter');
+  const prevBtn=document.getElementById('prevBtn');
+  const nextBtn=document.getElementById('nextBtn');
+  const soundBtn=document.getElementById('soundBtn');
+  const shareWhats=document.getElementById('shareWhats');
+  const shareLinked=document.getElementById('shareLinked');
+  const shareEmail=document.getElementById('shareEmail');
+  const cover=document.getElementById('cover');
+  const startBtn=document.getElementById('startBtn');
 
-  // pages config (exactly 80)
-  const TOTAL_PAGES = 80;
-  const pad = n => String(n).padStart(3,'0');
+  const TOTAL_PAGES=80;
+  const pad=n=>String(n).padStart(3,'0');
 
-  // ========== AUDIO (ONLY) ==========
-  let audioCtx = null;
-  let masterGain = null;
-  let musicState = null; // holds scheduled ids etc.
-  let soundOn = true;
+  let audioCtx, masterGain, soundOn=true;
 
-  function initMusicGraph() {
-    if (audioCtx) return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.9; // audible but smooth
+  function initMusic(){
+    if(audioCtx) return;
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.value=0.9;
     masterGain.connect(audioCtx.destination);
 
-    // Warm pad (layered)
-    const pad1 = audioCtx.createOscillator(); pad1.type='sine'; pad1.frequency.value = 110;
-    const pad1Gain = audioCtx.createGain(); pad1Gain.gain.value = 0.035;
-    const pad2 = audioCtx.createOscillator(); pad2.type='triangle'; pad2.frequency.value = 110 * 1.003;
-    const pad2Gain = audioCtx.createGain(); pad2Gain.gain.value = 0.03;
-    const padFilter = audioCtx.createBiquadFilter(); padFilter.type='lowpass'; padFilter.frequency.value = 950;
-    pad1.connect(pad1Gain); pad2.connect(pad2Gain);
-    pad1Gain.connect(padFilter); pad2Gain.connect(padFilter);
-    padFilter.connect(masterGain);
-
+    // Pad
+    const pad1=audioCtx.createOscillator(); pad1.type='sine'; pad1.frequency.value=110;
+    const pad2=audioCtx.createOscillator(); pad2.type='triangle'; pad2.frequency.value=111;
+    const g1=audioCtx.createGain(); g1.gain.value=0.03;
+    const g2=audioCtx.createGain(); g2.gain.value=0.025;
+    const filt=audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=900;
+    pad1.connect(g1).connect(filt); pad2.connect(g2).connect(filt); filt.connect(masterGain);
     pad1.start(); pad2.start();
 
-    // slow LFO to move pad timbre
-    const lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value = 0.018;
-    const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 320;
-    lfo.connect(lfoGain); lfoGain.connect(padFilter.frequency);
-    lfo.start();
-
-    // Sub-thump oscillator (will be envelope-driven per beat)
-    const subOsc = audioCtx.createOscillator(); subOsc.type='sine'; subOsc.frequency.value = 55;
-    const subGain = audioCtx.createGain(); subGain.gain.value = 0.0001;
-    subOsc.connect(subGain).connect(masterGain);
-    subOsc.start();
-
-    // Marimba/mallet melodic voice (function to trigger notes)
-    function playMarimbaNote(freq, startTime, dur=1.0, amp=0.09){
-      const now = startTime || audioCtx.currentTime;
-      const carrier = audioCtx.createOscillator(); carrier.type='sine'; carrier.frequency.setValueAtTime(freq, now);
-      const mod = audioCtx.createOscillator(); mod.type='sine'; mod.frequency.setValueAtTime(4.2, now);
-      const modGain = audioCtx.createGain(); modGain.gain.setValueAtTime(freq * 0.0028, now);
-      mod.connect(modGain);
-      modGain.connect(carrier.frequency);
-      const bodyGain = audioCtx.createGain(); bodyGain.gain.setValueAtTime(0.0001, now);
-      const bp = audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.Q = 6; bp.frequency.setValueAtTime(freq * 2.5, now);
-      carrier.connect(bp).connect(bodyGain).connect(masterGain);
-      bodyGain.gain.linearRampToValueAtTime(amp, now + 0.02);
-      bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      mod.start(now); carrier.start(now);
-      carrier.stop(now + dur + 0.05); mod.stop(now + dur + 0.05);
+    // Marimba-like notes
+    function playNote(freq,t){
+      const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.value=freq;
+      const g=audioCtx.createGain();
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.linearRampToValueAtTime(0.08,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+1.0);
+      const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=freq*2.5; bp.Q=6;
+      o.connect(bp).connect(g).connect(masterGain);
+      o.start(t); o.stop(t+1.2);
     }
 
-    // Short soft click (attack)
-    function playSoftClick(atTime){
-      const t = atTime || audioCtx.currentTime;
-      const size = Math.floor(audioCtx.sampleRate * 0.038);
-      const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i=0;i<size;i++) data[i] = (Math.random()*2-1) * Math.exp(-6*i/size);
-      const src = audioCtx.createBufferSource(); src.buffer = buffer;
-      const hf = audioCtx.createBiquadFilter(); hf.type='highpass'; hf.frequency.value = 850;
-      const g = audioCtx.createGain(); g.gain.setValueAtTime(0.055, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
-      src.connect(hf).connect(g).connect(masterGain);
-      src.start(t); src.stop(t + 0.09);
-    }
-
-    // Scheduler: tempo and pattern (calm, musical)
-    const bpm = 68;
-    const stepSec = 60 / bpm;
-    let scheduleTime = audioCtx.currentTime + 0.12;
-    let stepIndex = 0;
-    const seq = [440, 392, 330, 349, 392, 440, 523, 440]; // pleasant sequence
-
-    function scheduleLoop() {
-      const lookAhead = 2.8; // seconds
-      const now = audioCtx.currentTime;
-      while (scheduleTime < now + lookAhead) {
-        // sub-thump envelope
-        subGain.gain.setValueAtTime(0.0001, scheduleTime);
-        subGain.gain.linearRampToValueAtTime(0.5, scheduleTime + 0.006);
-        subGain.gain.exponentialRampToValueAtTime(0.0001, scheduleTime + 0.34);
-
-        // small click slightly after sub
-        playSoftClick(scheduleTime + 0.04);
-
-        // marimba note
-        const note = seq[stepIndex % seq.length];
-        playMarimbaNote(note, scheduleTime + 0.06, 1.08, 0.08);
-
-        stepIndex++;
-        scheduleTime += stepSec;
+    // Rhythm: soft pulse + sequence
+    let idx=0; const seq=[440,392,330,349,392,440,523,440];
+    const bpm=70, step=60/bpm; let next=audioCtx.currentTime+0.1;
+    function loop(){
+      const now=audioCtx.currentTime;
+      while(next<now+3){
+        playNote(seq[idx%seq.length],next+0.05);
+        idx++; next+=step;
       }
     }
-
-    // start scheduler
-    scheduleLoop();
-    const schedId = setInterval(scheduleLoop, 800);
-
-    musicState = {
-      pad1, pad2, pad1Gain, pad2Gain,
-      lfo, lfoGain,
-      subOsc, subGain,
-      playMarimbaNote, playSoftClick,
-      scheduleLoop, schedId, scheduleTime
-    };
+    setInterval(loop,500);
   }
 
-  // Flip chime (keeps UX from before)
   function playFlipChime(){
-    if(!audioCtx || !soundOn) return;
-    const now = audioCtx.currentTime;
-    const o = audioCtx.createOscillator(); o.type='triangle'; o.frequency.value = 880;
-    const g = audioCtx.createGain(); g.gain.setValueAtTime(0.06, now);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
-    o.connect(g).connect(masterGain);
-    o.start(now); o.stop(now + 0.45);
+    if(!audioCtx||!soundOn) return;
+    const now=audioCtx.currentTime;
+    const o=audioCtx.createOscillator(); o.type='triangle'; o.frequency.value=880;
+    const g=audioCtx.createGain(); g.gain.setValueAtTime(0.06,now);
+    g.gain.exponentialRampToValueAtTime(0.0001,now+0.4);
+    o.connect(g).connect(masterGain); o.start(now); o.stop(now+0.5);
   }
 
-  // Toggle sound (mute/unmute smoothly)
-  soundBtn.addEventListener('click', () => {
-    if (!audioCtx) {
-      // if toggled before Start, prepare graph
-      try { initMusicGraph(); } catch (e) { console.log(e); }
+  soundBtn.onclick=()=>{
+    if(!audioCtx) initMusic();
+    soundOn=!soundOn;
+    masterGain.gain.setTargetAtTime(soundOn?0.9:0.0001,audioCtx.currentTime,0.3);
+    soundBtn.textContent=soundOn?'🎵 Sound: ON':'🔇 Sound: OFF';
+  };
+
+  function initPages(){
+    for(let i=1;i<=TOTAL_PAGES;i++){
+      const el=document.createElement('div'); el.className='page'; el.dataset.idx=i-1;
+      el.style.zIndex=100+(TOTAL_PAGES-i);
+      const img=document.createElement('img'); img.src=`pages/page_${pad(i)}.png`; img.alt='Page '+i;
+      el.appendChild(img); viewer.appendChild(el);
     }
-    soundOn = !soundOn;
-    if (!masterGain) return;
-    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
-    masterGain.gain.setValueAtTime(masterGain.gain.value, audioCtx.currentTime);
-    masterGain.gain.linearRampToValueAtTime(soundOn ? 0.9 : 0.0001, audioCtx.currentTime + 0.6);
-    soundBtn.textContent = soundOn ? '🎵 Sound: ON' : '🔇 Sound: OFF';
-  });
-
-  // ========== PAGES & NAV ==========
-  function initPages() {
-    // create exactly 80 pages
-    for (let i = 1; i <= TOTAL_PAGES; i++) {
-      const src = `pages/page_${pad(i)}.png`;
-      const el = document.createElement('div');
-      el.className = 'page';
-      el.dataset.idx = i - 1;
-      el.style.zIndex = 100 + (TOTAL_PAGES - i);
-      const img = document.createElement('img');
-      img.src = src;
-      img.alt = 'Page ' + i;
-      el.appendChild(img);
-      viewer.appendChild(el);
-    }
-
-    const pages = Array.from(document.querySelectorAll('.page'));
-    let current = 0;
-
-    function updateUI(playSound = true) {
-      pages.forEach((p, i) => {
-        p.style.zIndex = (i === current) ? 999 : (100 + (pages.length - i));
-        if (i < current) { p.style.transform = 'translateX(-130%)'; p.style.opacity = '0'; p.style.pointerEvents = 'none'; }
-        else if (i === current) { p.style.transform = 'translateX(0)'; p.style.opacity = '1'; p.style.pointerEvents = 'auto'; }
-        else { p.style.transform = 'translateX(130%)'; p.style.opacity = '0'; p.style.pointerEvents = 'none'; }
+    const pages=[...document.querySelectorAll('.page')]; let current=0;
+    function updateUI(play=true){
+      pages.forEach((p,i)=>{
+        if(i<current){p.style.transform='translateX(-130%)';p.style.opacity='0';}
+        else if(i===current){p.style.transform='translateX(0)';p.style.opacity='1';}
+        else{p.style.transform='translateX(130%)';p.style.opacity='0';}
       });
-      counter.textContent = (current + 1) + ' / ' + pages.length;
-      prevBtn.disabled = current === 0;
-      nextBtn.disabled = current === pages.length - 1;
-      if (playSound) playFlipChime();
-      window.current = current;
+      counter.textContent=(current+1)+' / '+pages.length;
+      prevBtn.disabled=current===0; nextBtn.disabled=current===pages.length-1;
+      if(play) playFlipChime();
+      window.current=current;
     }
-
-    window.showPage = function (n) {
-      current = Math.max(0, Math.min(pages.length - 1, n));
-      updateUI(true);
-    };
-
-    prevBtn.onclick = () => showPage((window.current || 0) - 1);
-    nextBtn.onclick = () => showPage((window.current || 0) + 1);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft') showPage((window.current || 0) - 1);
-      if (e.key === 'ArrowRight') showPage((window.current || 0) + 1);
-    });
-
-    // deep-link: ?p=#
-    const pParam = parseInt(new URLSearchParams(window.location.search).get('p') || '0', 10);
-    if (!isNaN(pParam) && pParam > 0 && pParam <= pages.length) {
-      current = Math.max(0, Math.min(pages.length - 1, pParam - 1));
-    }
+    window.showPage=n=>{current=Math.max(0,Math.min(pages.length-1,n)); updateUI(true);};
+    prevBtn.onclick=()=>showPage((window.current||0)-1);
+    nextBtn.onclick=()=>showPage((window.current||0)+1);
+    document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')showPage(window.current-1);if(e.key==='ArrowRight')showPage(window.current+1);});
     updateUI(false);
   }
 
-  // Start button: initialize audio (music) and pages, then hide cover
-  startBtn.addEventListener('click', async () => {
-    try {
-      initMusicGraph(); // create graph
-      await audioCtx.resume(); // force resume on user gesture
-      // set master audible
-      if (masterGain) masterGain.gain.setValueAtTime(0.9, audioCtx.currentTime);
-    } catch (e) {
-      console.log('audio start/resume error', e);
-    }
-    cover.style.display = 'none';
-    initPages();
-  });
+  startBtn.onclick=async()=>{
+    initMusic(); await audioCtx.resume();
+    cover.style.display='none'; initPages();
+  };
 
-  // Sharing (use current page)
-  function shareUrlWithPage(){
-    const base = window.location.href.split('?')[0];
-    const p = (typeof window.current === 'number') ? (window.current + 1) : 1;
-    return base + '?p=' + p;
-  }
-  shareWhats.addEventListener('click', ()=>{ window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent('Flip through Upahaar catalogue: ' + shareUrlWithPage()), '_blank'); });
-  shareLinked.addEventListener('click', ()=>{ window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(shareUrlWithPage()), '_blank'); });
-  shareEmail.addEventListener('click', ()=>{ window.location.href = 'mailto:?subject=' + encodeURIComponent('Upahaar Catalogue') + '&body=' + encodeURIComponent('Hi — check this Upahaar catalogue: ' + shareUrlWithPage()); });
-
-  // Helper: initMusicGraph exported as initMusicGraph (keeps naming consistent)
-  function initMusicGraph(){
-    // call inner function that sets up audio graph (wrapped to avoid hoisting confusion)
-    // Implementation is the same as initMusicGraph body above for clarity.
-    // to avoid duplication, we call the local function defined earlier:
-    // (we used initMusicGraph earlier, so define it here as wrapper)
-    // But since the implementation above is in initMusicGraph scope, just reuse it:
-    // Actually, the real initMusicGraph is defined above as named function — call it
-    if (typeof window.initMusicGraphInternal === 'function') {
-      window.initMusicGraphInternal();
-    } else {
-      // fallback: call the original initMusicGraph implementation (we used named function earlier)
-      // In this file the initMusicGraph implementation is defined above, so just do nothing here.
-      // (This wrapper exists to keep references consistent.)
-    }
-  }
-
-  // To ensure the earlier implementation runs, attach it to window (one-time)
-  // The main implementation above is in the closure; expose it:
-  window.initMusicGraphInternal = function(){ /* empty placeholder - actual graph created earlier */ };
-
-  // Note: actual graph was created by calling initMusicGraph() earlier inside startBtn handler.
-  // The above placeholder ensures the wrapper exists; the real work is done in initMusicGraph defined above.
-
-  // IMPORTANT: the audio graph creation function used earlier is the named function initMusicGraph at top of closure.
-  // (We kept code structure consistent to avoid breaking IDs/behavior.)
-
+  function shareUrl(){const base=location.href.split('?')[0];const p=(window.current||0)+1;return base+'?p='+p;}
+  shareWhats.onclick=()=>window.open('https://wa.me/?text='+encodeURIComponent('Flip through Upahaar catalogue: '+shareUrl()),'_blank');
+  shareLinked.onclick=()=>window.open('https://www.linkedin.com/sharing/share-offsite/?url='+encodeURIComponent(shareUrl()),'_blank');
+  shareEmail.onclick=()=>location.href='mailto:?subject=Upahaar Catalogue&body='+encodeURIComponent('Hi — check this: '+shareUrl());
 })();
 </script>
 </body>
