@@ -48,6 +48,20 @@
   }
   .cover-small { margin-top:12px; font-size:12px; color:var(--muted); }
 
+  /* contact page */
+  .contact-card {
+    text-align:center;
+    padding:30px;
+    max-width:600px;
+  }
+  .contact-card h2 { font-size:28px; margin-bottom:10px; color:var(--accent); }
+  .contact-card p { margin:10px 0; color:var(--muted); }
+  .contact-links { margin-top:20px; display:flex; gap:12px; justify-content:center; }
+  .contact-links a {
+    padding:10px 14px; border-radius:8px; text-decoration:none;
+    border:1px solid #ddd; background:#fafafa; color:var(--accent);
+  }
+
   @media (max-width:700px) {
     .viewer { width:98vw; height:92vh; }
     .controls button { padding:8px 10px; font-size:13px; }
@@ -87,16 +101,6 @@
 </div>
 
 <script>
-/*
-  Robust flipbook index.html
-  - dynamically discovers page_001..page_120 in pages/
-  - avoids overlap by moving non-current pages off-screen
-  - wired Prev/Next and keyboard
-  - WebAudio page-turn sound with toggle
-  - share buttons (WhatsApp, LinkedIn, Email)
-  - cover overlay + deep-link via ?p=<n>
-*/
-
 (function(){
   const viewer = document.getElementById('viewer');
   const counter = document.getElementById('counter');
@@ -107,21 +111,19 @@
   const shareLinked = document.getElementById('shareLinked');
   const shareEmail = document.getElementById('shareEmail');
 
-  // try loading sequential page_###.png images up to maxPages
-  const maxPagesProbe = 120;
+  const maxPagesProbe = 79; // only 79 pngs, 80th will be contact
   const pad = n => String(n).padStart(3, '0');
 
-  function probePages(maxN=120) {
+  function probePages(maxN=79) {
     return new Promise((resolve) => {
       const found = [];
       let checked = 0;
-      // We will consider probing complete when we've attempted maxN images.
       for (let i=1; i<=maxN; i++){
         const name = `pages/page_${pad(i)}.png`;
         const img = new Image();
         img.onload = function(){ found.push({name}); done(); };
         img.onerror = function(){ done(); };
-        img.src = name + '?_=' + Date.now() + Math.floor(Math.random()*1000); // cache buster
+        img.src = name + '?_=' + Date.now() + Math.floor(Math.random()*1000);
       }
       function done(){
         checked++;
@@ -133,11 +135,11 @@
   async function init(){
     const images = await probePages(maxPagesProbe);
     if (!images || images.length === 0){
-      viewer.innerHTML = '<div class="fallback"><h3>No pages found</h3><p>Make sure there is a <code>pages/</code> folder next to this file containing page_###.png files.</p></div>';
+      viewer.innerHTML = '<div class="fallback"><h3>No pages found</h3><p>Make sure there is a <code>pages/</code> folder with page_###.png files.</p></div>';
       return;
     }
 
-    // Create page elements
+    // add normal pages
     images.forEach((src, i)=>{
       const el = document.createElement('div');
       el.className = 'page';
@@ -150,6 +152,23 @@
       viewer.appendChild(el);
     });
 
+    // add contact page as the last page (page 80)
+    const contactEl = document.createElement('div');
+    contactEl.className = 'page';
+    contactEl.dataset.idx = images.length;
+    contactEl.innerHTML = `
+      <div class="contact-card">
+        <h2>Thank you for exploring Upahaar 🎁</h2>
+        <p>We’d love to help you with your corporate gifting needs.</p>
+        <div class="contact-links">
+          <a href="https://api.whatsapp.com/send?phone=YOURNUMBER" target="_blank">📱 WhatsApp</a>
+          <a href="https://www.linkedin.com/in/YOURPROFILE" target="_blank">💼 LinkedIn</a>
+          <a href="mailto:youremail@example.com">✉️ Email</a>
+        </div>
+      </div>
+    `;
+    viewer.appendChild(contactEl);
+
     const pages = Array.from(document.querySelectorAll('.page'));
     let current = 0;
     let soundOn = true;
@@ -161,148 +180,20 @@
         if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const ctx = audioCtx;
         const now = ctx.currentTime;
-        const duration = 0.22;
-        const bufferSize = Math.floor(ctx.sampleRate * duration);
-        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for(let i=0;i<bufferSize;i++) data[i] = (Math.random()*2-1) * Math.exp(-5*i/bufferSize);
-        const noise = ctx.createBufferSource();
-        noise.buffer = buffer;
-        const noiseFilter = ctx.createBiquadFilter();
-        noiseFilter.type = 'lowpass';
-        noiseFilter.frequency.setValueAtTime(1400, now);
-        const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(0.6, now);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + duration*0.9);
-        noise.connect(noiseFilter).connect(noiseGain).connect(ctx.destination);
-        noise.start(now);
-        noise.stop(now + duration);
 
+        // whoosh
         const osc = ctx.createOscillator();
+        osc.type = "sine";
         const g = ctx.createGain();
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(900, now);
-        g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(0.12, now + 0.006);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
         osc.connect(g).connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(0.15, now + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.25);
         osc.start(now);
-        osc.stop(now + duration);
-      }catch(e){
-        // fail silently if audio blocked
-        console.log('audio err', e);
-      }
-    }
+        osc.stop(now + 0.25);
 
-    // New updateUI: non-current pages moved off-screen (no overlap)
-    function updateUI(playSound=true){
-      pages.forEach((p,i)=>{
-        // set stacking order
-        p.style.zIndex = (i === current) ? 999 : (100 + (pages.length - i));
-        if(i < current) {
-          p.style.transform = 'translateX(-130%) rotateY(-12deg) scale(.98)';
-          p.style.opacity = '0';
-          p.style.pointerEvents = 'none';
-        }
-        else if(i === current) {
-          p.style.transform = 'translateX(0) rotateY(0deg) scale(1)';
-          p.style.opacity = '1';
-          p.style.pointerEvents = 'auto';
-        }
-        else {
-          p.style.transform = 'translateX(130%) rotateY(0deg) scale(.98)';
-          p.style.opacity = '0';
-          p.style.pointerEvents = 'none';
-        }
-      });
-      counter.textContent = (current+1) + ' / ' + pages.length;
-      prevBtn.disabled = current === 0;
-      nextBtn.disabled = current === pages.length-1;
-      if(playSound) playFlipSound();
-      // expose current for console debugging
-      window.current = current;
-    }
-
-    // safe showPage wrapper
-    window.showPage = function(n){
-      current = Math.max(0, Math.min(pages.length - 1, n));
-      updateUI(true);
-    };
-
-    // attach navigation handlers (use onclick for reliability)
-    prevBtn.onclick = ()=> showPage((window.current||0)-1);
-    nextBtn.onclick = ()=> showPage((window.current||0)+1);
-
-    // keyboard navigation
-    document.addEventListener('keydown', (e)=>{
-      if(e.key === 'ArrowLeft') showPage((window.current||0)-1);
-      if(e.key === 'ArrowRight') showPage((window.current||0)+1);
-    });
-
-    // sound toggle button
-    soundBtn.addEventListener('click', ()=>{
-      soundOn = !soundOn;
-      soundBtn.textContent = soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF';
-      if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-    });
-
-    // share handlers (will include page param)
-    const pageUrl = window.location.href;
-    shareWhats.addEventListener('click', ()=>{
-      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
-      const txt = encodeURIComponent('Flip through Upahaar catalogue: ' + (pageUrl.split('?')[0] + '?p=' + pageNum));
-      window.open('https://wa.me/?text=' + txt, '_blank');
-    });
-    shareLinked.addEventListener('click', ()=>{
-      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
-      window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(pageUrl.split('?')[0] + '?p=' + pageNum), '_blank');
-    });
-    shareEmail.addEventListener('click', ()=>{
-      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
-      const subj = encodeURIComponent('Upahaar Catalogue');
-      const body = encodeURIComponent('Hi, take a flip through this Upahaar catalogue: ' + (pageUrl.split('?')[0] + '?p=' + pageNum));
-      window.location.href = 'mailto:?subject=' + subj + '&body=' + body;
-    });
-
-    // initialize (no sound play on first paint)
-    updateUI(false);
-
-    // --- cover + deep-link support ---
-    const cover = document.getElementById('cover');
-    const startBtn = document.getElementById('startBtn');
-
-    // read URL param ?p= (1-based page). If present, convert to zero-based index.
-    const urlParams = new URLSearchParams(window.location.search);
-    const pParam = parseInt(urlParams.get('p') || '0', 10);
-    if (!isNaN(pParam) && pParam > 0 && pParam <= pages.length) {
-      // user asked to open a specific page; hide cover and jump
-      cover.style.display = 'none';
-      current = Math.max(0, Math.min(pages.length - 1, pParam - 1));
-      updateUI(false);
-    } else {
-      // show cover initially (user must click Start)
-      cover.style.display = 'flex';
-    }
-
-    startBtn.addEventListener('click', ()=>{
-      cover.style.display = 'none';
-      // show first page if not already set
-      if(typeof window.current === 'undefined' || window.current === null) current = 0;
-      updateUI(false);
-    });
-
-    // expose pages length for debugging
-    window.totalPages = pages.length;
-
-    // hint: clicking viewer may unlock audio on some browsers
-    viewer.addEventListener('click', ()=>{ if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); });
-
-  } // end init
-
-  // run initialization
-  init();
-
-})();
-</script>
-</body>
-</html>
+        // click
+        const click = ctx.createOscillator();
+        const clickGain
