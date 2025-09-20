@@ -56,7 +56,7 @@
   }
   .contact-card h2 { font-size:28px; margin-bottom:10px; color:var(--accent); }
   .contact-card p { margin:10px 0; color:var(--muted); }
-  .contact-links { margin-top:20px; display:flex; gap:12px; justify-content:center; }
+  .contact-links { margin-top:20px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
   .contact-links a {
     padding:10px 14px; border-radius:8px; text-decoration:none;
     border:1px solid #ddd; background:#fafafa; color:var(--accent);
@@ -111,7 +111,7 @@
   const shareLinked = document.getElementById('shareLinked');
   const shareEmail = document.getElementById('shareEmail');
 
-  const maxPagesProbe = 79; // only 79 pngs, 80th will be contact
+  const maxPagesProbe = 79; // 79 images, 80th is contact
   const pad = n => String(n).padStart(3, '0');
 
   function probePages(maxN=79) {
@@ -135,65 +135,20 @@
   async function init(){
     const images = await probePages(maxPagesProbe);
     if (!images || images.length === 0){
-      viewer.innerHTML = '<div class="fallback"><h3>No pages found</h3><p>Make sure there is a <code>pages/</code> folder with page_###.png files.</p></div>';
+      viewer.innerHTML = '<div class="fallback"><h3>No pages found</h3></div>';
       return;
     }
 
-    // add normal pages
+    // add image pages
     images.forEach((src, i)=>{
       const el = document.createElement('div');
       el.className = 'page';
       el.dataset.idx = i;
-      el.style.zIndex = 100 + (images.length - i);
       const img = document.createElement('img');
       img.src = src;
-      img.alt = 'Page ' + (i+1);
       el.appendChild(img);
       viewer.appendChild(el);
     });
 
-    // add contact page as the last page (page 80)
-    const contactEl = document.createElement('div');
-    contactEl.className = 'page';
-    contactEl.dataset.idx = images.length;
-    contactEl.innerHTML = `
-      <div class="contact-card">
-        <h2>Thank you for exploring Upahaar 🎁</h2>
-        <p>We’d love to help you with your corporate gifting needs.</p>
-        <div class="contact-links">
-          <a href="https://api.whatsapp.com/send?phone=YOURNUMBER" target="_blank">📱 WhatsApp</a>
-          <a href="https://www.linkedin.com/in/YOURPROFILE" target="_blank">💼 LinkedIn</a>
-          <a href="mailto:youremail@example.com">✉️ Email</a>
-        </div>
-      </div>
-    `;
-    viewer.appendChild(contactEl);
-
-    const pages = Array.from(document.querySelectorAll('.page'));
-    let current = 0;
-    let soundOn = true;
-    let audioCtx = null;
-
-    function playFlipSound(){
-      if(!soundOn) return;
-      try{
-        if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const ctx = audioCtx;
-        const now = ctx.currentTime;
-
-        // whoosh
-        const osc = ctx.createOscillator();
-        osc.type = "sine";
-        const g = ctx.createGain();
-        osc.connect(g).connect(ctx.destination);
-        g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(0.15, now + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-        osc.frequency.setValueAtTime(600, now);
-        osc.frequency.exponentialRampToValueAtTime(200, now + 0.25);
-        osc.start(now);
-        osc.stop(now + 0.25);
-
-        // click
-        const click = ctx.createOscillator();
-        const clickGain
+    // add contact page as last
+    const contactEl = document.createElem
