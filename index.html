@@ -62,16 +62,14 @@
 
 <script>
 /*
-  Full flipbook + synthesized rhythmic ambient music:
-  - Uses WebAudio only (no external samples)
-  - Music starts after Start click (user gesture)
-  - Rhythm: soft sub-thump + light percussive clicks + melodic pad layers
-  - Volume set higher so it's clearly audible but still smooth
-  - Pages: 80 (page_001..page_080)
+  Revised music design (marimba-like melodic + warm pad + soft pulse)
+  - Synthesized only (no samples)
+  - Starts on Start click
+  - Sound toggle mutes/unmutes
+  - Pages unchanged (80 pages)
 */
 
 (function(){
-  // DOM
   const viewer = document.getElementById('viewer');
   const counter = document.getElementById('counter');
   const prevBtn = document.getElementById('prevBtn');
@@ -83,263 +81,204 @@
   const cover = document.getElementById('cover');
   const startBtn = document.getElementById('startBtn');
 
-  // pages
   const totalPages = 80;
-  const pad = n => String(n).padStart(3, '0');
+  const pad = n => String(n).padStart(3,'0');
 
-  // audio state
   let audioCtx = null;
   let masterGain = null;
-  let musicNodes = null; // keep refs
+  let musicRefs = null;
   let soundOn = true;
 
-  // ensure and start audio graph
-  function ensureAudio() {
-    if (audioCtx) return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // Create marimba-like tone using simple FM-ish approach (two oscillators + short body)
+  function createMarimbaVoice(freq, time, amp=0.09, dur=1.0){
+    const ctx = audioCtx;
+    const now = time || ctx.currentTime;
+    // carrier
+    const car = ctx.createOscillator();
+    car.type = 'sine';
+    car.frequency.setValueAtTime(freq, now);
+    // modulator — slight FM via frequency modulation
+    const mod = ctx.createOscillator();
+    mod.type = 'sine';
+    mod.frequency.setValueAtTime(3.5, now); // slow vibrato-ish mod
+    const modGain = ctx.createGain();
+    modGain.gain.setValueAtTime(freq * 0.0025, now);
 
-    // master gain (overall level)
+    const bodyGain = ctx.createGain();
+    bodyGain.gain.setValueAtTime(0.0001, now);
+    bodyGain.gain.linearRampToValueAtTime(amp, now + 0.02);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+    // Brightness filter (to make it mallet-like)
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.setValueAtTime(freq * 2.5, now);
+    bp.Q = 6;
+
+    // connect FM
+    mod.connect(modGain);
+    modGain.connect(car.frequency);
+    car.connect(bp).connect(bodyGain).connect(masterGain);
+
+    mod.start(now); car.start(now);
+    car.stop(now + dur + 0.05); mod.stop(now + dur + 0.05);
+  }
+
+  function ensureAudio(){
+    if(audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = 1.0; // we're controlling voice levels individually (safe to keep at 1)
+    masterGain.gain.value = 0.9; // louder baseline but voices controlled individually
     masterGain.connect(audioCtx.destination);
 
-    // --- rhythmic low thump (sub) ---
-    // create an oscillator + envelope triggered on interval
-    const subOsc = audioCtx.createOscillator();
-    subOsc.type = 'sine';
-    subOsc.frequency.value = 60; // deep sub
-    const subGain = audioCtx.createGain();
-    subGain.gain.value = 0.0001;
+    // Warm pad layer (two oscillators, gentle detune)
+    const pad1 = audioCtx.createOscillator(); pad1.type='sine'; pad1.frequency.value = 110;
+    const pad2 = audioCtx.createOscillator(); pad2.type='triangle'; pad2.frequency.value = 110 * 1.002;
+    const g1 = audioCtx.createGain(); g1.gain.value = 0.035;
+    const g2 = audioCtx.createGain(); g2.gain.value = 0.03;
+    const padFilter = audioCtx.createBiquadFilter(); padFilter.type='lowpass'; padFilter.frequency.value=900;
+    pad1.connect(g1); g1.connect(padFilter); pad2.connect(g2); g2.connect(padFilter); padFilter.connect(masterGain);
+    pad1.start(); pad2.start();
+
+    // gentle motion on pad filter using slow LFO
+    const lfo = audioCtx.createOscillator(); lfo.type='sine'; lfo.frequency.value = 0.02;
+    const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 260;
+    lfo.connect(lfoGain); lfoGain.connect(padFilter.frequency);
+    lfo.start();
+
+    // Soft rhythmic pulse generator (sub + click)
+    const subOsc = audioCtx.createOscillator(); subOsc.type='sine'; subOsc.frequency.value = 55;
+    const subGain = audioCtx.createGain(); subGain.gain.value = 0.0001;
     subOsc.connect(subGain).connect(masterGain);
     subOsc.start();
 
-    // --- soft percussive click (high transient) ---
-    // We'll synthesize a short filtered noise burst when needed
-    function playClick(time) {
-      // noise buffer
-      const bufferSize = audioCtx.sampleRate * 0.04; // 40ms
-      const nb = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-      const data = nb.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-6 * i / bufferSize);
+    // Marimba arpeggio pattern (notes in a pleasant diatonic sequence)
+    const sequence = [440, 392, 330, 349, 392, 440, 523, 440]; // A, G, E, F, G, A, C5, A
+    let idx = 0;
+    const bpm = 68;
+    const stepMs = 60000 / bpm; // ms per beat
+    let schedulerTime = audioCtx.currentTime + 0.1;
 
-      const src = audioCtx.createBufferSource();
-      src.buffer = nb;
-      const filt = audioCtx.createBiquadFilter();
-      filt.type = 'highpass';
-      filt.frequency.value = 800;
-      const g = audioCtx.createGain();
-      g.gain.setValueAtTime(0.06, time || audioCtx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.0001, (time || audioCtx.currentTime) + 0.08);
-      src.connect(filt).connect(g).connect(masterGain);
-      src.start(time || audioCtx.currentTime);
-      src.stop((time || audioCtx.currentTime) + 0.09);
-    }
-
-    // --- melodic pad layers (warm, slightly detuned) ---
-    const padOsc1 = audioCtx.createOscillator();
-    padOsc1.type = 'sine'; padOsc1.frequency.value = 110; // base
-    const padGain1 = audioCtx.createGain(); padGain1.gain.value = 0.02;
-
-    const padOsc2 = audioCtx.createOscillator();
-    padOsc2.type = 'triangle'; padOsc2.frequency.value = 110 * 1.002; // tiny detune
-    const padGain2 = audioCtx.createGain(); padGain2.gain.value = 0.015;
-
-    const padFilter = audioCtx.createBiquadFilter();
-    padFilter.type = 'lowpass'; padFilter.frequency.value = 900;
-
-    padOsc1.connect(padGain1); padOsc2.connect(padGain2);
-    padGain1.connect(padFilter); padGain2.connect(padFilter);
-    padFilter.connect(masterGain);
-
-    padOsc1.start();
-    padOsc2.start();
-
-    // --- melodic bell/soft flute voice (warm bell-ish) ---
-    function scheduleBell(freq, t, dur = 1.4, vol = 0.06) {
-      const o = audioCtx.createOscillator(); o.type = 'sine';
-      const grd = audioCtx.createGain();
-      const bf = audioCtx.createBiquadFilter(); bf.type = 'bandpass'; bf.Q = 5; bf.frequency.value = freq * 1.0;
-      grd.gain.setValueAtTime(0.0001, t);
-      grd.gain.linearRampToValueAtTime(vol, t + 0.03);
-      grd.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.frequency.setValueAtTime(freq, t);
-      o.connect(bf).connect(grd).connect(masterGain);
-      o.start(t); o.stop(t + dur + 0.05);
-    }
-
-    // rhythmic engine: tempo + scheduled events
-    const bpm = 62; // calm tempo — adjustable
-    const beatMs = 60000 / bpm;
-    const subdivision = 2; // two pulses per beat
-    const stepMs = beatMs / subdivision;
-
-    // schedule repeating pattern: sub-thump + clicks + bells
-    let startTime = audioCtx.currentTime + 0.1;
-    function scheduleLoop() {
-      // schedule a few seconds ahead to be safe
-      const lookAheadSec = 6.0;
+    function schedulePattern(){
+      const lookAhead = 3.0; // seconds
       const now = audioCtx.currentTime;
-      while (startTime < now + lookAheadSec) {
-        // sub thump (short envelope)
-        subGain.gain.cancelScheduledValues(startTime);
-        subGain.gain.setValueAtTime(0.0001, startTime);
-        subGain.gain.linearRampToValueAtTime(0.6, startTime + 0.006); // quick attack
-        subGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.32); // decay
+      while(schedulerTime < now + lookAhead){
+        // sub thump envelope
+        subGain.gain.cancelScheduledValues(schedulerTime);
+        subGain.gain.setValueAtTime(0.0001, schedulerTime);
+        subGain.gain.linearRampToValueAtTime(0.5, schedulerTime + 0.006);
+        subGain.gain.exponentialRampToValueAtTime(0.0001, schedulerTime + 0.36);
 
-        // soft click slightly after the thump
-        playClick(startTime + 0.06);
+        // soft click slightly after thump (simulate mallet attack)
+        playSoftClick(schedulerTime + 0.04);
 
-        // occasional bell on some measures
-        const measureLen = beatMs * 4 / 1000; // seconds for 4/4 bar
-        const beatNumber = Math.floor((startTime - audioCtx.currentTime) / (beatMs / 1000)) % 8;
-        if (beatNumber === 0) {
-          scheduleBell(660, startTime + 0.18, 1.2, 0.045);
-        } else if (beatNumber === 3) {
-          scheduleBell(520, startTime + 0.18, 1.1, 0.038);
+        // marimba voice on some steps
+        if (idx % 1 === 0) { // every step
+          const note = sequence[idx % sequence.length];
+          createMarimbaVoice(note, schedulerTime + 0.06, 0.08, 1.1);
         }
-
-        startTime += stepMs / 1000.0; // advance (converted to seconds)
+        idx++;
+        schedulerTime += (stepMs / 1000);
       }
     }
 
-    // start scheduling loop with interval
-    scheduleLoop();
-    const schedulerId = setInterval(scheduleLoop, 1200);
-
-    // Save nodes for control
-    musicNodes = {
-      audioCtx, masterGain, subOsc, subGain: subGain,
-      padOsc1, padOsc2, padGain1, padGain2, padFilter,
-      scheduleLoop, schedulerId
-    };
-  }
-
-  // stop music (if needed)
-  function stopMusic() {
-    if (!musicNodes) return;
-    try {
-      clearInterval(musicNodes.schedulerId);
-      // gently lower master
-      musicNodes.masterGain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime + 0.8);
-    } catch (e) { console.log(e); }
-  }
-
-  function playFlipChime() {
-    if (!audioCtx || !soundOn) return;
-    try {
+    // click generator
+    function playSoftClick(time){
       const ctx = audioCtx;
-      const now = ctx.currentTime;
-      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 900;
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.09, now);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
-      o.connect(g).connect(masterGain);
-      o.start(now); o.stop(now + 0.5);
-    } catch (e) { console.log(e); }
+      const size = Math.floor(ctx.sampleRate * 0.04);
+      const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for(let i=0;i<size;i++) data[i] = (Math.random()*2-1) * Math.exp(-5*i/size);
+      const src = ctx.createBufferSource(); src.buffer = buffer;
+      const hf = ctx.createBiquadFilter(); hf.type='highpass'; hf.frequency.value=800;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.05, time); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.08);
+      src.connect(hf).connect(g).connect(masterGain);
+      src.start(time); src.stop(time + 0.09);
+    }
+
+    schedulePattern();
+    const schedId = setInterval(schedulePattern, 900);
+
+    // store refs so we can mute/stop gracefully later
+    musicRefs = { pad1, pad2, g1, g2, padFilter, lfo, lfoGain, subOsc, subGain, schedulerTimeRef: schedulerTime, schedId };
+  }
+
+  function playFlipChime(){
+    if(!audioCtx || !soundOn) return;
+    const ctx = audioCtx;
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type='triangle'; o.frequency.value = 880;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.06, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+    o.connect(g).connect(masterGain); o.start(now); o.stop(now + 0.45);
   }
 
   // Sound toggle
-  soundBtn.addEventListener('click', () => {
-    if (!audioCtx) {
-      // if toggled before Start, just prepare audio (but not start scheduling until Start)
-      try { ensureAudio(); } catch (e) { console.log(e); }
+  soundBtn.addEventListener('click', ()=>{
+    if(!audioCtx) {
+      try{ ensureAudio(); } catch(e){ console.log(e); }
     }
     soundOn = !soundOn;
-    if (!musicNodes || !musicNodes.masterGain) {
-      // set masterGain directly if exists
-      if (masterGain) {
-        masterGain.gain.linearRampToValueAtTime(soundOn ? 1.0 : 0.0001, audioCtx.currentTime + 0.6);
-      }
-    } else {
-      // scale master (we used gain 1.0 as base)
-      masterGain.gain.linearRampToValueAtTime(soundOn ? 1.0 : 0.0001, audioCtx.currentTime + 0.6);
-    }
+    if(!masterGain) return;
+    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+    masterGain.gain.setValueAtTime(masterGain.gain.value, audioCtx.currentTime);
+    masterGain.gain.linearRampToValueAtTime(soundOn ? 0.9 : 0.0001, audioCtx.currentTime + 0.6);
     soundBtn.textContent = soundOn ? '🎵 Sound: ON' : '🔇 Sound: OFF';
   });
 
-  // --- Pages: create elements and navigation ---
-  function initPages() {
-    for (let i = 1; i <= totalPages; i++) {
+  // Pages builder + navigation
+  function initPages(){
+    for(let i=1;i<=totalPages;i++){
       const src = `pages/page_${pad(i)}.png`;
-      const el = document.createElement('div');
-      el.className = 'page';
-      el.dataset.idx = i - 1;
+      const el = document.createElement('div'); el.className = 'page'; el.dataset.idx = i-1;
       el.style.zIndex = 100 + (totalPages - i);
-      const img = document.createElement('img');
-      img.src = src;
-      img.alt = 'Page ' + i;
+      const img = document.createElement('img'); img.src = src; img.alt = 'Page ' + i;
       el.appendChild(img);
       viewer.appendChild(el);
     }
-
     const pages = Array.from(document.querySelectorAll('.page'));
     let current = 0;
-
-    function updateUI(doSound = true) {
-      pages.forEach((p, i) => {
-        p.style.zIndex = (i === current) ? 999 : (100 + (pages.length - i));
-        if (i < current) { p.style.transform = 'translateX(-130%)'; p.style.opacity = '0'; p.style.pointerEvents = 'none'; }
-        else if (i === current) { p.style.transform = 'translateX(0)'; p.style.opacity = '1'; p.style.pointerEvents = 'auto'; }
-        else { p.style.transform = 'translateX(130%)'; p.style.opacity = '0'; p.style.pointerEvents = 'none'; }
+    function updateUI(play=true){
+      pages.forEach((p,i)=>{
+        if(i<current){ p.style.transform='translateX(-130%)'; p.style.opacity='0'; p.style.pointerEvents='none'; }
+        else if(i===current){ p.style.transform='translateX(0)'; p.style.opacity='1'; p.style.pointerEvents='auto'; }
+        else { p.style.transform='translateX(130%)'; p.style.opacity='0'; p.style.pointerEvents='none'; }
       });
-      counter.textContent = (current + 1) + ' / ' + pages.length;
-      prevBtn.disabled = current === 0;
-      nextBtn.disabled = current === pages.length - 1;
-      if (doSound) playFlipChime();
+      counter.textContent = (current+1) + ' / ' + pages.length;
+      prevBtn.disabled = current===0; nextBtn.disabled = current===pages.length-1;
+      if(play) playFlipChime();
       window.current = current;
     }
-
-    window.showPage = function (n) {
-      current = Math.max(0, Math.min(pages.length - 1, n));
+    window.showPage = function(n){
+      current = Math.max(0, Math.min(pages.length-1, n));
       updateUI(true);
     };
-
-    prevBtn.onclick = () => showPage((window.current || 0) - 1);
-    nextBtn.onclick = () => showPage((window.current || 0) + 1);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft') showPage((window.current || 0) - 1);
-      if (e.key === 'ArrowRight') showPage((window.current || 0) + 1);
-    });
-
-    // deep-link support
+    prevBtn.onclick = ()=> showPage((window.current||0)-1);
+    nextBtn.onclick = ()=> showPage((window.current||0)+1);
+    document.addEventListener('keydown', (e)=>{ if(e.key==='ArrowLeft') showPage((window.current||0)-1); if(e.key==='ArrowRight') showPage((window.current||0)+1); });
+    // deep-link
     const pParam = parseInt(new URLSearchParams(window.location.search).get('p') || '0', 10);
-    if (!isNaN(pParam) && pParam > 0 && pParam <= pages.length) {
-      current = Math.max(0, Math.min(pages.length - 1, pParam - 1));
-    }
+    if(!isNaN(pParam) && pParam>0 && pParam<=pages.length) current = Math.max(0, Math.min(pages.length-1, pParam-1));
     updateUI(false);
   }
 
-  // Start button: initialize audio and pages
-  startBtn.addEventListener('click', async () => {
-    try {
+  // Start: init audio & pages
+  startBtn.addEventListener('click', async ()=>{
+    try{
       ensureAudio();
-      // resume (force) - required in many browsers
       await audioCtx.resume();
-      // set master to audible level
-      if (masterGain) masterGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
-    } catch (e) { console.log('audio resume error', e); }
-
+      if(masterGain) masterGain.gain.setValueAtTime(0.9, audioCtx.currentTime);
+    }catch(e){ console.log('audio start err', e); }
     cover.style.display = 'none';
     initPages();
   });
 
   // Share buttons (deep-link current page)
-  function shareUrlWithPage() {
+  function shareUrlWithPage(){
     const base = window.location.href.split('?')[0];
     const p = (typeof window.current === 'number') ? (window.current + 1) : 1;
     return base + '?p=' + p;
   }
-  shareWhats.addEventListener('click', () => {
-    const url = shareUrlWithPage();
-    window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent('Flip through Upahaar catalogue: ' + url), '_blank');
-  });
-  shareLinked.addEventListener('click', () => {
-    const url = shareUrlWithPage();
-    window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(url), '_blank');
-  });
-  shareEmail.addEventListener('click', () => {
-    const url = shareUrlWithPage();
-    window.location.href = 'mailto:?subject=' + encodeURIComponent('Upahaar Catalogue') + '&body=' + encodeURIComponent('Hi — check this Upahaar catalogue: ' + url);
-  });
+  shareWhats.addEventListener('click', ()=>{ window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent('Flip through Upahaar catalogue: ' + shareUrlWithPage()), '_blank'); });
+  shareLinked.addEventListener('click', ()=>{ window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(shareUrlWithPage()), '_blank'); });
+  shareEmail.addEventListener('click', ()=>{ window.location.href = 'mailto:?subject=' + encodeURIComponent('Upahaar Catalogue') + '&body=' + encodeURIComponent('Hi — check this Upahaar catalogue: ' + shareUrlWithPage()); });
 
 })();
 </script>
