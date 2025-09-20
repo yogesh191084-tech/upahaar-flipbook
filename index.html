@@ -21,7 +21,39 @@
   .share button { background:transparent; color:var(--accent); border:1px solid #ddd; padding:6px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
   .note { position:absolute; bottom:14px; right:14px; font-size:12px; color:var(--muted); z-index:99999; }
   .fallback { padding:20px; text-align:center; color:var(--muted); }
-  @media (max-width:700px) { .viewer { width:98vw; height:92vh; } .controls button { padding:8px 10px; font-size:13px; } }
+
+  /* cover overlay */
+  .cover {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+    background: linear-gradient(rgba(255,255,255,0.75), rgba(255,255,255,0.65));
+    z-index: 999999;
+  }
+  .cover-card {
+    text-align: center;
+    padding: 28px 34px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    background: white;
+    max-width: 720px;
+  }
+  .cover-card h1 { margin:0 0 8px; font-size:34px; color:var(--accent); }
+  .cover-sub { margin:0 0 16px; color:var(--muted); }
+  .cover-card button {
+    background:var(--accent); color:#fff; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; font-size:16px;
+  }
+  .cover-small { margin-top:12px; font-size:12px; color:var(--muted); }
+
+  @media (max-width:700px) {
+    .viewer { width:98vw; height:92vh; }
+    .controls button { padding:8px 10px; font-size:13px; }
+    .cover-card{ padding:18px; }
+    .cover-card h1{ font-size:22px; }
+  }
 </style>
 </head>
 <body>
@@ -34,6 +66,16 @@
       <button id="shareEmail">Email</button>
     </div>
     <div class="counter" id="counter">0 / 0</div>
+
+    <!-- cover / title overlay -->
+    <div class="cover" id="cover" role="dialog" aria-label="Upahaar catalogue cover">
+      <div class="cover-card">
+        <h1>Upahaar</h1>
+        <p class="cover-sub">Corporate gifting solutions — product catalogue</p>
+        <button id="startBtn">Start flipping ▶</button>
+        <p class="cover-small">Use ← → keys to flip after starting</p>
+      </div>
+    </div>
 
     <!-- pages will be injected here by script -->
     <div class="controls" id="controls">
@@ -52,6 +94,7 @@
   - wired Prev/Next and keyboard
   - WebAudio page-turn sound with toggle
   - share buttons (WhatsApp, LinkedIn, Email)
+  - cover overlay + deep-link via ?p=<n>
 */
 
 (function(){
@@ -203,23 +246,53 @@
       if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
     });
 
-    // share handlers
+    // share handlers (will include page param)
     const pageUrl = window.location.href;
     shareWhats.addEventListener('click', ()=>{
-      const txt = encodeURIComponent('Flip through Upahaar catalogue: ' + pageUrl);
+      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
+      const txt = encodeURIComponent('Flip through Upahaar catalogue: ' + (pageUrl.split('?')[0] + '?p=' + pageNum));
       window.open('https://wa.me/?text=' + txt, '_blank');
     });
     shareLinked.addEventListener('click', ()=>{
-      window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(pageUrl), '_blank');
+      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
+      window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(pageUrl.split('?')[0] + '?p=' + pageNum), '_blank');
     });
     shareEmail.addEventListener('click', ()=>{
+      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
       const subj = encodeURIComponent('Upahaar Catalogue');
-      const body = encodeURIComponent('Hi, take a flip through this Upahaar catalogue: ' + pageUrl);
+      const body = encodeURIComponent('Hi, take a flip through this Upahaar catalogue: ' + (pageUrl.split('?')[0] + '?p=' + pageNum));
       window.location.href = 'mailto:?subject=' + subj + '&body=' + body;
     });
 
     // initialize (no sound play on first paint)
     updateUI(false);
+
+    // --- cover + deep-link support ---
+    const cover = document.getElementById('cover');
+    const startBtn = document.getElementById('startBtn');
+
+    // read URL param ?p= (1-based page). If present, convert to zero-based index.
+    const urlParams = new URLSearchParams(window.location.search);
+    const pParam = parseInt(urlParams.get('p') || '0', 10);
+    if (!isNaN(pParam) && pParam > 0 && pParam <= pages.length) {
+      // user asked to open a specific page; hide cover and jump
+      cover.style.display = 'none';
+      current = Math.max(0, Math.min(pages.length - 1, pParam - 1));
+      updateUI(false);
+    } else {
+      // show cover initially (user must click Start)
+      cover.style.display = 'flex';
+    }
+
+    startBtn.addEventListener('click', ()=>{
+      cover.style.display = 'none';
+      // show first page if not already set
+      if(typeof window.current === 'undefined' || window.current === null) current = 0;
+      updateUI(false);
+    });
+
+    // expose pages length for debugging
+    window.totalPages = pages.length;
 
     // hint: clicking viewer may unlock audio on some browsers
     viewer.addEventListener('click', ()=>{ if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); });
