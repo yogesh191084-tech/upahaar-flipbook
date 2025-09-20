@@ -67,13 +67,13 @@
   function ensureAudio(){
     if(audioCtx) return;
     audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-    masterGain=audioCtx.createGain(); masterGain.gain.value=0.4; // 🔊 louder pad
+    masterGain=audioCtx.createGain(); masterGain.gain.value=0.6; // 🔊 louder overall
     masterGain.connect(audioCtx.destination);
 
     // Ambient pad
     const o1=audioCtx.createOscillator(), o2=audioCtx.createOscillator();
     o1.type='sine'; o2.type='sine'; o1.frequency.value=110; o2.frequency.value=111;
-    const g1=audioCtx.createGain(), g2=audioCtx.createGain(); g1.gain.value=0.08; g2.gain.value=0.08;
+    const g1=audioCtx.createGain(), g2=audioCtx.createGain(); g1.gain.value=0.12; g2.gain.value=0.12;
     const f=audioCtx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=600;
     o1.connect(g1).connect(f); o2.connect(g2).connect(f); f.connect(masterGain);
     o1.start(); o2.start();
@@ -92,7 +92,7 @@
     const osc=audioCtx.createOscillator(); osc.type='sine'; osc.frequency.value=freq;
     const g=audioCtx.createGain();
     g.gain.setValueAtTime(0.0001,now);
-    g.gain.linearRampToValueAtTime(0.18,now+0.05); // 🔊 louder flute
+    g.gain.linearRampToValueAtTime(0.25,now+0.05); // 🔊 louder flute
     g.gain.exponentialRampToValueAtTime(0.0001,now+1.5);
     osc.connect(g).connect(masterGain); osc.start(now); osc.stop(now+1.5);
   }
@@ -100,14 +100,14 @@
     if(!audioCtx||!soundOn) return;
     const ctx=audioCtx, now=ctx.currentTime;
     const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=800;
-    const g=ctx.createGain(); g.gain.setValueAtTime(0.07,now); g.gain.exponentialRampToValueAtTime(0.0001,now+0.4);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.09,now); g.gain.exponentialRampToValueAtTime(0.0001,now+0.4);
     o.connect(g).connect(masterGain); o.start(now); o.stop(now+0.5);
   }
   soundBtn.onclick=()=>{
     if(!audioCtx) ensureAudio();
     soundOn=!soundOn;
     if(!masterGain) return;
-    masterGain.gain.linearRampToValueAtTime(soundOn?0.4:0.0001,audioCtx.currentTime+0.6);
+    masterGain.gain.linearRampToValueAtTime(soundOn?0.6:0.0001,audioCtx.currentTime+0.6);
     soundBtn.textContent=soundOn?'🎵 Sound: ON':'🔇 Sound: OFF';
   };
 
