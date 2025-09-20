@@ -21,16 +21,11 @@
   .share button { background:transparent; color:var(--accent-dark); border:1px solid #ddd; padding:6px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
   .note { position:absolute; bottom:14px; right:14px; font-size:12px; color:var(--muted); z-index:99999; }
   .fallback { padding:20px; text-align:center; color:var(--muted); }
-  .cover {
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    background: linear-gradient(rgba(248,249,250,0.88), rgba(255,255,255,0.9));
-    z-index:999999;
-  }
+  .cover { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background: linear-gradient(rgba(248,249,250,0.88), rgba(255,255,255,0.9)); z-index:999999; }
   .cover-card { text-align:center; padding:24px 28px; border-radius:10px; background:#fff; box-shadow:0 10px 30px rgba(0,0,0,0.12); max-width:720px; }
   .cover-card h1 { margin:0; font-size:34px; color:var(--accent-dark); }
   .cover-card p { margin:10px 0 18px; color:var(--muted); }
   .cover-card button { background:var(--accent); color:#fff; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; font-size:16px; }
-  /* contact modal */
   .modal-back { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.45); z-index:1000000; }
   .modal { background:#fff; padding:20px; border-radius:10px; max-width:820px; width:92%; box-shadow:0 12px 40px rgba(0,0,0,0.18); color:var(--accent-dark); }
   .modal h3{ margin:6px 0 10px; }
@@ -53,7 +48,6 @@
 
     <div class="counter" id="counter">0 / 0</div>
 
-    <!-- cover overlay -->
     <div class="cover" id="cover" role="dialog" aria-label="Upahaar cover">
       <div class="cover-card">
         <h1>Upahaar</h1>
@@ -68,11 +62,10 @@
       <button id="nextBtn">Next ▶</button>
     </div>
 
-    <div class="note">Use ← → keys to flip. Click once to enable sound on some browsers.</div>
+    <div class="note">Use ← → keys to flip. Click Start to enable sound.</div>
   </div>
 </div>
 
-<!-- contact modal (opens when user clicks Contact) -->
 <div class="modal-back" id="modalBack" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true">
     <h3>Contact Upahaar</h3>
@@ -98,14 +91,9 @@
 </div>
 
 <script>
-/*
-  Full index.html
-  - probes pages/page_001..page_120 for existing PNGs
-  - displays only the found images in order
-  - does NOT overwrite your real page_080.png (it will show if present)
-  - contact info is shown in a modal (doesn't replace last page)
-  - Start cover, Prev/Next, keyboard navigation, softer sound
-  - share links include current page (deep link)
+/* audio design + flipbook behaviour
+   - ambient pad starts only after user clicks Start (to satisfy browser autoplay policy)
+   - gentle bell on each flip
 */
 
 (function(){
@@ -120,16 +108,101 @@
   const contactBtn = document.getElementById('contactBtn');
   const modalBack = document.getElementById('modalBack');
   const closeModal = document.getElementById('closeModal');
+  const cover = document.getElementById('cover');
+  const startBtn = document.getElementById('startBtn');
 
-  // settings
   const maxProbe = 120;
   const pad = n => String(n).padStart(3,'0');
 
-  // probe for images (attempt to load up to maxProbe)
+  // ---------------- audio engine ----------------
+  let audioCtx = null;
+  let masterGain = null;
+  let padNodes = null;
+  let soundOn = true;
+
+  function ensureAudio(){
+    if(audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.22; // master pad loudness (low)
+    masterGain.connect(audioCtx.destination);
+    // create ambient pad: two detuned sines -> lowpass -> slight LFO on filter
+    const o1 = audioCtx.createOscillator();
+    const o2 = audioCtx.createOscillator();
+    o1.type = 'sine'; o2.type = 'sine';
+    o1.frequency.value = 220; o2.frequency.value = 220 * 1.005; // tiny detune
+    const oGain = audioCtx.createGain(); oGain.gain.value = 0.06; // very soft
+    const oGain2 = audioCtx.createGain(); oGain2.gain.value = 0.05;
+    const filter = audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value = 800;
+    // LFO for filter
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 320; // how much filter moves
+    lfo.type = 'sine'; lfo.frequency.value = 0.03; // very slow
+    // connect
+    o1.connect(oGain); o2.connect(oGain2);
+    oGain.connect(filter); oGain2.connect(filter);
+    lfo.connect(lfoGain); lfoGain.connect(filter.frequency);
+    filter.connect(masterGain);
+    // start nodes paused (gain set low)
+    o1.start(); o2.start(); lfo.start();
+    padNodes = { o1,o2,oGain,oGain2,filter,lfo,lfoGain };
+    // ramp gains smoothly on start
+    oGain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    oGain.gain.linearRampToValueAtTime(0.06, audioCtx.currentTime + 1.5);
+    oGain2.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    oGain2.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 1.6);
+    // lower master initially (for subtlety)
+    masterGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    masterGain.gain.exponentialRampToValueAtTime(0.22, audioCtx.currentTime + 1.8);
+  }
+
+  function stopPad(){
+    if(!padNodes) return;
+    try{
+      padNodes.oGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.8);
+      padNodes.oGain2.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.8);
+      masterGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0);
+    }catch(e){ console.log(e); }
+  }
+
+  // flip chime: two partials + short noise, soft envelope
+  function playChime(){
+    if(!audioCtx || !soundOn) return;
+    try{
+      const ctx = audioCtx;
+      const now = ctx.currentTime;
+      const freqs = [880, 1320]; // pleasant interval
+      freqs.forEach((f, i)=>{
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = f * (i===1?1.001:1);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(0.08*(i===0?1:0.6), now + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.45 + i*0.04);
+        o.connect(g).connect(ctx.destination);
+        o.start(now);
+        o.stop(now + 0.6 + i*0.04);
+      });
+      // soft filtered noise transient (paper-like)
+      const bufferSize = ctx.sampleRate * 0.18;
+      const nb = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = nb.getChannelData(0);
+      for(let i=0;i<bufferSize;i++) data[i] = (Math.random()*2-1) * Math.exp(-4*i/bufferSize);
+      const src = ctx.createBufferSource(); src.buffer = nb;
+      const nf = ctx.createBiquadFilter(); nf.type='lowpass'; nf.frequency.value = 1400;
+      const ng = ctx.createGain(); ng.gain.setValueAtTime(0.12, now);
+      ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      src.connect(nf).connect(ng).connect(ctx.destination);
+      src.start(now); src.stop(now + 0.2);
+    }catch(e){ console.log('chime err', e); }
+  }
+
+  // ---------------- probe pages & UI ----------------
+  function clamp(n,a,b){return Math.max(a,Math.min(b,n));}
   function probeImages(maxN){
     return new Promise((resolve)=>{
-      const found = [];
-      let checked = 0;
+      const found = []; let checked=0;
       for(let i=1;i<=maxN;i++){
         const src = `pages/page_${pad(i)}.png`;
         const img = new Image();
@@ -137,52 +210,18 @@
         img.onerror = function(){ done(); };
         img.src = src + '?_=' + Date.now() + Math.floor(Math.random()*1000);
       }
-      function done(){
-        checked++;
-        if(checked >= maxN){
-          // sort by numeric index to be safe
-          found.sort((a,b)=>a.i - b.i);
-          resolve(found.map(x=>x.src));
-        }
-      }
+      function done(){ checked++; if(checked>=maxN){ found.sort((a,b)=>a.i-b.i); resolve(found.map(x=>x.src)); } }
     });
   }
 
-  // softer pleasant flip sound (short chime)
-  let audioCtx = null, soundOn = true;
-  function playFlipSound(){
-    if(!soundOn) return;
-    try{
-      if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const ctx = audioCtx;
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(520, now);
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.linearRampToValueAtTime(0.12, now + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
-      osc.connect(g).connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.28);
-    }catch(e){
-      // ignore
-      console.log('audio err', e);
-    }
-  }
-
-  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
-
   async function init(){
-    const images = await probeImages(maxProbe);
-    if(!images || images.length === 0){
-      viewer.innerHTML = '<div class="fallback"><h3>No pages found</h3><p>Put your PNG pages in a folder named <code>pages</code> next to this file, named <code>page_001.png</code> etc.</p></div>';
+    const images = await probeImages(120);
+    if(!images || images.length===0){
+      viewer.innerHTML = '<div class="fallback"><h3>No pages found</h3><p>Create a <code>pages/</code> folder next to this file with <code>page_001.png</code> ...</p></div>';
       return;
     }
 
-    // create page elements
-    images.forEach((src, idx) => {
+    images.forEach((src, idx)=>{
       const el = document.createElement('div');
       el.className = 'page';
       el.dataset.idx = idx;
@@ -194,89 +233,83 @@
       viewer.appendChild(el);
     });
 
-    // UI state
     const pages = Array.from(document.querySelectorAll('.page'));
     let current = 0;
 
     function updateUI(playSound=true){
       pages.forEach((p,i)=>{
-        if(i < current) { p.style.transform = 'translateX(-140%) scale(.98)'; p.style.opacity = '0'; p.style.pointerEvents = 'none'; }
-        else if(i === current) { p.style.transform = 'translateX(0) scale(1)'; p.style.opacity = '1'; p.style.pointerEvents = 'auto'; }
-        else { p.style.transform = 'translateX(140%) scale(.98)'; p.style.opacity = '0'; p.style.pointerEvents = 'none'; }
-        // stacking order
-        p.style.zIndex = (i === current) ? 999 : (100 + (pages.length - i));
+        if(i<current){ p.style.transform='translateX(-140%) scale(.98)'; p.style.opacity='0'; p.style.pointerEvents='none'; }
+        else if(i===current){ p.style.transform='translateX(0) scale(1)'; p.style.opacity='1'; p.style.pointerEvents='auto'; }
+        else { p.style.transform='translateX(140%) scale(.98)'; p.style.opacity='0'; p.style.pointerEvents='none'; }
+        p.style.zIndex = (i===current)?999:(100 + (pages.length - i));
       });
       counter.textContent = (current+1) + ' / ' + pages.length;
-      prevBtn.disabled = current === 0;
-      nextBtn.disabled = current === pages.length - 1;
-      if(playSound) playFlipSound();
-      window.current = current; // expose for debugging & share
+      prevBtn.disabled = current===0;
+      nextBtn.disabled = current===pages.length-1;
+      if(playSound) playChime();
+      window.current = current;
     }
 
-    // navigation
-    function showPage(n){ current = clamp(n, 0, pages.length-1); updateUI(true); }
+    function showPage(n){ current = clamp(n,0,pages.length-1); updateUI(true); }
+
     prevBtn.onclick = ()=> showPage(current-1);
     nextBtn.onclick = ()=> showPage(current+1);
     document.addEventListener('keydown', (e)=>{
-      if(e.key === 'ArrowLeft') showPage(current-1);
-      if(e.key === 'ArrowRight') showPage(current+1);
+      if(e.key==='ArrowLeft') showPage(current-1);
+      if(e.key==='ArrowRight') showPage(current+1);
     });
+
+    // share with deep link (page param)
+    function shareUrlWithPage(){ const base = window.location.href.split('?')[0]; const p = (typeof window.current==='number')?window.current+1:1; return base + '?p=' + p; }
+    shareWhats.addEventListener('click', ()=>{ const u=shareUrlWithPage(); window.open('https://api.whatsapp.com/send?text='+encodeURIComponent('Flip through Upahaar catalogue: '+u),'_blank'); });
+    shareLinked.addEventListener('click', ()=>{ window.open('https://www.linkedin.com/sharing/share-offsite/?url='+encodeURIComponent(shareUrlWithPage()),'_blank'); });
+    shareEmail.addEventListener('click', ()=>{ const u=shareUrlWithPage(); window.location.href='mailto:?subject='+encodeURIComponent('Upahaar Catalogue')+'&body='+encodeURIComponent('Hi — check this Upahaar catalogue: '+u); });
+
+    // contact modal
+    contactBtn.addEventListener('click', ()=>{ modalBack.style.display='flex'; modalBack.setAttribute('aria-hidden','false'); });
+    closeModal.addEventListener('click', ()=>{ modalBack.style.display='none'; modalBack.setAttribute('aria-hidden','true'); });
+    modalBack.addEventListener('click', (e)=>{ if(e.target===modalBack){ modalBack.style.display='none'; modalBack.setAttribute('aria-hidden','true'); } });
 
     // sound toggle
     soundBtn.addEventListener('click', ()=>{
       soundOn = !soundOn;
       soundBtn.textContent = soundOn ? '🎵 Sound: ON' : '🔇 Sound: OFF';
-      if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      if(!soundOn) { if(masterGain) masterGain.gain.setValueAtTime(0.0001, audioCtx.currentTime+0.02); }
+      else { if(masterGain) masterGain.gain.setValueAtTime(0.22, audioCtx.currentTime+0.02); }
     });
 
-    // share functions include deep-link with page (so receivers open to same page)
-    function shareUrlWithPage(){
-      const base = window.location.href.split('?')[0];
-      const p = (typeof window.current === 'number') ? (window.current + 1) : 1;
-      return base + '?p=' + p;
-    }
-    shareWhats.addEventListener('click', ()=>{
-      const url = shareUrlWithPage();
-      const txt = encodeURIComponent('Flip through Upahaar catalogue: ' + url);
-      window.open('https://api.whatsapp.com/send?text=' + txt, '_blank');
-    });
-    shareLinked.addEventListener('click', ()=>{
-      const url = shareUrlWithPage();
-      window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(url), '_blank');
-    });
-    shareEmail.addEventListener('click', ()=>{
-      const url = shareUrlWithPage();
-      const subj = encodeURIComponent('Upahaar Catalogue');
-      const body = encodeURIComponent('Hi — check this Upahaar catalogue: ' + url);
-      window.location.href = 'mailto:?subject=' + subj + '&body=' + body;
-    });
-
-    // contact modal
-    contactBtn.addEventListener('click', ()=>{ modalBack.style.display = 'flex'; modalBack.setAttribute('aria-hidden','false'); });
-    closeModal.addEventListener('click', ()=>{ modalBack.style.display = 'none'; modalBack.setAttribute('aria-hidden','true'); });
-    modalBack.addEventListener('click', (e)=>{ if(e.target === modalBack) { modalBack.style.display='none'; modalBack.setAttribute('aria-hidden','true'); } });
-
-    // Start cover & deep-link support
-    const cover = document.getElementById('cover');
-    const startBtn = document.getElementById('startBtn');
+    // Start cover + resume audio on first user interaction
     const urlParams = new URLSearchParams(window.location.search);
-    const pParam = parseInt(urlParams.get('p') || '0', 10);
-    if (!isNaN(pParam) && pParam > 0 && pParam <= pages.length) {
-      cover.style.display = 'none';
-      current = clamp(pParam - 1, 0, pages.length-1);
+    const pParam = parseInt(urlParams.get('p')||'0',10);
+    if(!isNaN(pParam) && pParam>0 && pParam<=pages.length){
+      cover.style.display='none';
+      current = clamp(pParam-1,0,pages.length-1);
       updateUI(false);
+      // don't auto-start pad; user can click start to enable sound if desired
     } else {
-      cover.style.display = 'flex';
-    }
-    if (startBtn) {
-      startBtn.onclick = () => { cover.style.display = 'none'; if(typeof window.current === 'undefined') current = 0; updateUI(false); };
+      cover.style.display='flex';
     }
 
-    // init UI
+    // when user clicks Start -> initialize audio & hide cover
+    startBtn.addEventListener('click', ()=>{
+      // init audio only after user gesture
+      try{
+        ensureAudio();
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+      }catch(e){ console.log('audio init error', e); }
+      cover.style.display='none';
+      updateUI(false);
+    });
+
+    // also, clicking viewer area will resume audio (helpful on some devices)
+    viewer.addEventListener('click', ()=>{
+      if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    });
+
     updateUI(false);
   }
 
-  // run
+  // start probe + ui
   init();
 
 })();
