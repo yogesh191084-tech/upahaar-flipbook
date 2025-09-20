@@ -11,19 +11,22 @@
   .viewer { width:92vw; max-width:1100px; height:88vh; max-height:820px; background:var(--card); box-shadow:0 18px 50px rgba(0,0,0,0.12); border-radius:12px; overflow:hidden; position:relative; }
   .page { width:100%; height:100%; display:flex; align-items:center; justify-content:center; transition:transform .5s ease,opacity .45s ease; position:absolute; top:0; left:0; pointer-events:none; background:#fff; }
   .page img { max-width:100%; max-height:100%; border-radius:6px; user-select:none; }
-  .controls { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); display:flex; gap:10px; z-index:99; }
-  .controls button { background:var(--accent-dark); color:white; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
+  .controls { position:absolute; bottom:18px; left:50%; transform:translateX(-50%); display:flex; gap:10px; z-index:999999; }
+  .controls button { background:var(--accent-dark); color:white; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-size:14px; box-shadow:0 6px 14px rgba(0,0,0,0.12); }
   .controls button:disabled { opacity:.35; cursor:default; }
-  .counter { position:absolute; top:12px; right:12px; background:rgba(0,0,0,.6); color:#fff; padding:6px 10px; border-radius:6px; font-size:13px; z-index:99; }
-  .sound-toggle { position:absolute; top:12px; left:12px; z-index:99; }
+  .counter { position:absolute; top:12px; right:12px; background:rgba(0,0,0,.6); color:#fff; padding:6px 10px; border-radius:6px; font-size:13px; z-index:999999; }
+  .sound-toggle { position:absolute; top:12px; left:12px; z-index:999999; }
   .sound-toggle button { background:transparent; color:var(--accent-dark); border:1px solid #ddd; padding:6px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
-  .share { position:absolute; top:12px; left:120px; display:flex; gap:8px; z-index:99; }
+  .share { position:absolute; top:12px; left:200px; display:flex; gap:8px; z-index:999999; }
   .share button { background:transparent; color:var(--accent-dark); border:1px solid #ddd; padding:6px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
-  .note { position:absolute; bottom:14px; right:14px; font-size:12px; color:var(--muted); z-index:99; }
-  .cover { position:absolute; inset:0; background:linear-gradient(180deg,#f7fbf8,#f2efe9); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:1000; }
+  .note { position:absolute; bottom:16px; right:14px; font-size:12px; color:var(--muted); z-index:999999; }
+  .cover { position:absolute; inset:0; background:linear-gradient(180deg,#f7fbf8,#f2efe9); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:1000000; }
   .cover h1 { font-size:28px; margin:0 0 12px; color:var(--accent-dark); }
-  .cover p { margin:6px 0 18px; color:var(--muted); }
+  .cover p { margin:6px 0 18px; color:var(--muted); max-width:70%; text-align:center; }
   .cover button { background:var(--accent); color:#fff; padding:12px 20px; border:none; border-radius:8px; font-size:16px; cursor:pointer; }
+  /* make sure the viewer's overlay controls always show above pages */
+  .viewer > * { position: absolute; }
+  @media (max-width:700px) { .viewer { width:98vw; height:92vh; } .controls button { padding:8px 10px; font-size:13px; } .share { left:120px; } }
 </style>
 </head>
 <body>
@@ -36,24 +39,28 @@
       <button id="shareEmail">Email</button>
     </div>
     <div class="counter" id="counter">0 / 0</div>
-    <div class="controls">
+
+    <div class="controls" id="controls">
       <button id="prevBtn">◀ Prev</button>
       <button id="nextBtn">Next ▶</button>
     </div>
+
     <div class="note">Use ← → keys to flip. Click Start to enable music.</div>
+
     <div class="cover" id="cover">
       <h1>Upahaar — Corporate Gifting</h1>
-      <p>Interactive catalogue — click Start to explore (gentle music plays)</p>
+      <p>Interactive catalogue — click Start to explore. Music will play softly; toggle sound at top-left.</p>
       <button id="startBtn">Start Flipbook ▶</button>
     </div>
   </div>
 </div>
 
 <script>
-/* Full robust audio + pages script.
-   - Creates AudioContext on Start (user gesture)
-   - Starts a pleasant repeating marimba+pad pattern (slightly louder)
-   - Keeps all UI exactly the same
+/* Final single-file script:
+   - 80 pages (page_001.png .. page_080.png in pages/)
+   - Reliable AudioContext created on Start click
+   - Louder master gain
+   - Ensured controls z-index/pointer events
 */
 
 (function(){
@@ -71,37 +78,32 @@
   const TOTAL_PAGES = 80;
   const pad = n => String(n).padStart(3,'0');
 
-  // AUDIO variables
+  // Audio state
   let audioCtx = null;
   let masterGain = null;
-  let running = false;
   let soundOn = true;
-  let schedInterval = null;
+  let schedulerHandle = null;
 
-  function createAudioGraph(){
+  function createAudio(){
     if(audioCtx) return;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // master gain (boosted)
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = 1.0; // slightly increased default volume
+    masterGain.gain.value = 2.0; // <-- louder default (adjustable)
     masterGain.connect(audioCtx.destination);
 
-    // pad oscillators (soft)
-    const padA = audioCtx.createOscillator(); padA.type='sine'; padA.frequency.value = 110;
-    const padB = audioCtx.createOscillator(); padB.type='triangle'; padB.frequency.value = 110 * 1.002;
-    const gA = audioCtx.createGain(); gA.gain.value = 0.035;
-    const gB = audioCtx.createGain(); gB.gain.value = 0.03;
+    // gentle pads
+    const pad1 = audioCtx.createOscillator(); pad1.type='sine'; pad1.frequency.value = 110;
+    const pad2 = audioCtx.createOscillator(); pad2.type='triangle'; pad2.frequency.value = 110 * 1.002;
+    const g1 = audioCtx.createGain(); g1.gain.value = 0.035;
+    const g2 = audioCtx.createGain(); g2.gain.value = 0.03;
     const lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 900;
-    padA.connect(gA).connect(lp); padB.connect(gB).connect(lp); lp.connect(masterGain);
-    padA.start(); padB.start();
+    pad1.connect(g1).connect(lp); pad2.connect(g2).connect(lp); lp.connect(masterGain);
+    pad1.start(); pad2.start();
 
-    // small low thump for rhythm
-    const subOsc = audioCtx.createOscillator(); subOsc.type='sine'; subOsc.frequency.value=60;
-    const subGain = audioCtx.createGain(); subGain.gain.value=0.0001;
-    subOsc.connect(subGain).connect(masterGain);
-    subOsc.start();
-
-    // marimba-like function
-    function playMarimba(freq, t, dur=1.0, vel=0.09){
+    // marimba-like note function
+    function marimba(freq, t, dur=0.9, vel=0.09){
       const o = audioCtx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(freq, t);
       const g = audioCtx.createGain(); g.gain.setValueAtTime(0.0001, t);
       g.gain.linearRampToValueAtTime(vel, t + 0.01);
@@ -111,8 +113,8 @@
       o.start(t); o.stop(t + dur + 0.05);
     }
 
-    // small click to add texture
-    function playClick(t){
+    // click texture function
+    function clickSound(t){
       const size = Math.floor(audioCtx.sampleRate * 0.03);
       const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
       const data = buffer.getChannelData(0);
@@ -124,48 +126,39 @@
       src.start(t); src.stop(t + 0.13);
     }
 
-    // sequencer scheduling
+    // scheduler
     let idx = 0;
-    const seq = [440, 392, 330, 349, 392, 440, 523, 440]; // pleasant melodic loop
+    const seq = [440, 392, 330, 349, 392, 440, 523, 440];
     const bpm = 72;
     const step = 60 / bpm;
-    let nextT = audioCtx.currentTime + 0.1;
+    let nextT = audioCtx.currentTime + 0.08;
 
-    function scheduler(){
+    function scheduleLoop(){
       const now = audioCtx.currentTime;
-      while(nextT < now + 2.5){
-        // marimba note
-        playMarimba(seq[idx % seq.length], nextT + 0.04, 0.9, 0.085);
-        // click slightly after beat
-        playClick(nextT + 0.06);
-        // subtle sub pulse envelope via master gain (momentary)
-        // create a short gain bump
-        // we'll emulate by quickly increasing masterGain via setTargetAtTime (subtle).
-        // (masterGain used here is global; avoid extreme changes)
-        nextT += step;
+      while(nextT < now + 2.2){
+        marimba(seq[idx % seq.length], nextT + 0.04, 0.9, 0.085);
+        clickSound(nextT + 0.06);
         idx++;
+        nextT += step;
       }
     }
-    // run scheduler actively
-    schedInterval = setInterval(scheduler, 400);
-    // initial run
-    scheduler();
+    schedulerHandle = setInterval(scheduleLoop, 420);
+    scheduleLoop();
   }
 
   function stopAudio(){
-    if(schedInterval) { clearInterval(schedInterval); schedInterval = null; }
-    // we don't stop oscillators because they're used as pad; we lower volume
+    if(!audioCtx) return;
+    if(schedulerHandle){ clearInterval(schedulerHandle); schedulerHandle = null; }
     if(masterGain) masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.2);
-    running = false;
   }
 
-  function resumeAudioIfNeeded(){
+  function resumeAudio(){
     if(!audioCtx) return;
     if(audioCtx.state === 'suspended') audioCtx.resume();
-    if(masterGain) masterGain.gain.setTargetAtTime(soundOn?1.0:0.0001, audioCtx.currentTime, 0.05);
+    if(masterGain) masterGain.gain.setTargetAtTime(soundOn?2.0:0.0001, audioCtx.currentTime, 0.02);
   }
 
-  // small flip chime
+  // flip chime
   function playFlip(){
     if(!audioCtx || !soundOn) return;
     const now = audioCtx.currentTime;
@@ -175,26 +168,28 @@
     o.start(now); o.stop(now + 0.45);
   }
 
-  // sound toggle handler
-  soundBtn.addEventListener('click', () => {
-    if(!audioCtx) { createAudioGraph(); } // create graph even if toggled earlier
+  soundBtn.addEventListener('click', ()=>{
+    if(!audioCtx) createAudio();
     soundOn = !soundOn;
-    if(masterGain) masterGain.gain.setTargetAtTime(soundOn?1.0:0.0001, audioCtx.currentTime, 0.2);
+    if(masterGain) masterGain.gain.setTargetAtTime(soundOn?2.0:0.0001, audioCtx.currentTime, 0.2);
     soundBtn.textContent = soundOn ? '🎵 Sound: ON' : '🔇 Sound: OFF';
     if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   });
 
-  // pages creation and navigation
+  // Pages + navigation
   function initPages(){
+    // create page elements
     for(let i=1;i<=TOTAL_PAGES;i++){
-      const el = document.createElement('div'); el.className = 'page'; el.dataset.idx = i-1;
+      const el = document.createElement('div'); el.className='page'; el.dataset.idx = i-1;
       el.style.zIndex = 100 + (TOTAL_PAGES - i);
       const img = document.createElement('img'); img.src = `pages/page_${pad(i)}.png`; img.alt = 'Page '+i;
       el.appendChild(img); viewer.appendChild(el);
     }
+
     const pages = Array.from(document.querySelectorAll('.page'));
     let current = 0;
-    function update(play=true){
+
+    function updateUI(play=true){
       pages.forEach((p,i)=>{
         if(i<current){ p.style.transform='translateX(-130%)'; p.style.opacity='0'; p.style.pointerEvents='none'; }
         else if(i===current){ p.style.transform='translateX(0)'; p.style.opacity='1'; p.style.pointerEvents='auto'; }
@@ -206,28 +201,34 @@
       if(play) playFlip();
       window.current = current;
     }
-    window.showPage = function(n){ current = Math.max(0, Math.min(pages.length-1, n)); update(true); };
+
+    window.showPage = function(n){
+      current = Math.max(0, Math.min(pages.length-1, n));
+      updateUI(true);
+    };
+
     prevBtn.onclick = ()=> showPage((window.current||0)-1);
     nextBtn.onclick = ()=> showPage((window.current||0)+1);
-    document.addEventListener('keydown', e=>{ if(e.key==='ArrowLeft') showPage(window.current-1); if(e.key==='ArrowRight') showPage(window.current+1); });
-    update(false);
+    document.addEventListener('keydown', e=>{
+      if(e.key === 'ArrowLeft') showPage(window.current-1);
+      if(e.key === 'ArrowRight') showPage(window.current+1);
+    });
+
+    // initial paint
+    updateUI(false);
   }
 
-  // start click: initialize audio & pages
+  // Start button handler: create audio graph and pages
   startBtn.addEventListener('click', async ()=>{
-    if(!audioCtx){
-      createAudioGraph();
-      try { await audioCtx.resume(); } catch(e){ console.log('resume error',e); }
-      masterGain.gain.setTargetAtTime(soundOn?1.0:0.0001, audioCtx.currentTime, 0.02);
-    } else {
-      resumeAudioIfNeeded();
-    }
+    if(!audioCtx) createAudio();
+    try { await audioCtx.resume(); } catch(e){ /* ignore resume error */ }
+    if(masterGain) masterGain.gain.setTargetAtTime(soundOn?2.0:0.0001, audioCtx.currentTime, 0.02);
     cover.style.display = 'none';
     initPages();
   });
 
-  // simple share handlers
-  function shareUrl(){ const base = window.location.href.split('?')[0]; const p=(window.current||0)+1; return base+'?p='+p; }
+  // Sharing handlers
+  function shareUrl(){ const base = window.location.href.split('?')[0]; const p = (window.current||0)+1; return base + '?p=' + p; }
   shareWhats.addEventListener('click', ()=> window.open('https://wa.me/?text=' + encodeURIComponent('Flip through Upahaar catalogue: ' + shareUrl()), '_blank'));
   shareLinked.addEventListener('click', ()=> window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(shareUrl()), '_blank'));
   shareEmail.addEventListener('click', ()=> window.location.href = 'mailto:?subject=' + encodeURIComponent('Upahaar Catalogue') + '&body=' + encodeURIComponent('Hi — check this Upahaar catalogue: ' + shareUrl()));
