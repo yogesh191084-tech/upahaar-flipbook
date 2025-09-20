@@ -40,7 +40,7 @@
     <div class="note">Use ← → keys to flip</div>
     <div class="cover" id="cover">
       <h1>Upahaar — Corporate Gifting</h1>
-      <p>Interactive catalogue with gentle background music</p>
+      <p>Interactive catalogue with immersive background music</p>
       <button id="startBtn">Start Flipbook ▶</button>
     </div>
   </div>
@@ -63,51 +63,43 @@
   const pad=n=>String(n).padStart(3,'0');
 
   // ---- Audio ----
-  let audioCtx=null, masterGain=null, soundOn=true, fluteTimer=null;
+  let audioCtx=null, masterGain=null, soundOn=true, pulseInterval=null;
   function ensureAudio(){
     if(audioCtx) return;
     audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-    masterGain=audioCtx.createGain(); masterGain.gain.value=0.6; // 🔊 louder overall
+    masterGain=audioCtx.createGain(); masterGain.gain.value=0.8; // 🔊 louder overall
     masterGain.connect(audioCtx.destination);
 
-    // Ambient pad
-    const o1=audioCtx.createOscillator(), o2=audioCtx.createOscillator();
-    o1.type='sine'; o2.type='sine'; o1.frequency.value=110; o2.frequency.value=111;
-    const g1=audioCtx.createGain(), g2=audioCtx.createGain(); g1.gain.value=0.12; g2.gain.value=0.12;
-    const f=audioCtx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=600;
-    o1.connect(g1).connect(f); o2.connect(g2).connect(f); f.connect(masterGain);
-    o1.start(); o2.start();
+    // Chord oscillators (A major triad: A, C#, E)
+    const freqs=[220,277,330];
+    freqs.forEach((fHz,i)=>{
+      const osc=audioCtx.createOscillator(); osc.type='triangle'; osc.frequency.value=fHz;
+      const g=audioCtx.createGain(); g.gain.value=0.0001;
+      osc.connect(g).connect(masterGain); osc.start();
+      // Pulsing fade-in/out
+      const cycle=6+i*2; // offset each note
+      pulseInterval=setInterval(()=>{
+        g.gain.setValueAtTime(0.0001,audioCtx.currentTime);
+        g.gain.linearRampToValueAtTime(0.25,audioCtx.currentTime+2);
+        g.gain.linearRampToValueAtTime(0.05,audioCtx.currentTime+cycle/2);
+        g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+cycle);
+      }, cycle*1000);
+    });
+  }
 
-    // Flute melody
-    const melody=[440,392,330,392,440,0,523];
-    let idx=0;
-    fluteTimer=setInterval(()=>{
-      const note=melody[idx%melody.length]; idx++;
-      if(note>0) playFlute(note);
-    },2000);
-  }
-  function playFlute(freq){
-    if(!audioCtx) return;
-    const now=audioCtx.currentTime;
-    const osc=audioCtx.createOscillator(); osc.type='sine'; osc.frequency.value=freq;
-    const g=audioCtx.createGain();
-    g.gain.setValueAtTime(0.0001,now);
-    g.gain.linearRampToValueAtTime(0.25,now+0.05); // 🔊 louder flute
-    g.gain.exponentialRampToValueAtTime(0.0001,now+1.5);
-    osc.connect(g).connect(masterGain); osc.start(now); osc.stop(now+1.5);
-  }
   function playChime(){
     if(!audioCtx||!soundOn) return;
     const ctx=audioCtx, now=ctx.currentTime;
-    const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=800;
-    const g=ctx.createGain(); g.gain.setValueAtTime(0.09,now); g.gain.exponentialRampToValueAtTime(0.0001,now+0.4);
-    o.connect(g).connect(masterGain); o.start(now); o.stop(now+0.5);
+    const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=900;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.12,now); g.gain.exponentialRampToValueAtTime(0.0001,now+0.5);
+    o.connect(g).connect(masterGain); o.start(now); o.stop(now+0.6);
   }
+
   soundBtn.onclick=()=>{
     if(!audioCtx) ensureAudio();
     soundOn=!soundOn;
     if(!masterGain) return;
-    masterGain.gain.linearRampToValueAtTime(soundOn?0.6:0.0001,audioCtx.currentTime+0.6);
+    masterGain.gain.linearRampToValueAtTime(soundOn?0.8:0.0001,audioCtx.currentTime+0.6);
     soundBtn.textContent=soundOn?'🎵 Sound: ON':'🔇 Sound: OFF';
   };
 
