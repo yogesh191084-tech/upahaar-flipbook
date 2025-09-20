@@ -17,6 +17,8 @@
   .counter { position:absolute; top:12px; right:12px; background:rgba(0,0,0,0.6); color:#fff; padding:6px 10px; border-radius:6px; font-size:13px; z-index:99; }
   .sound-toggle { position:absolute; top:12px; left:12px; z-index:99; }
   .sound-toggle button { background:transparent; color:var(--accent-dark); border:1px solid #ddd; padding:6px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
+  .share { position:absolute; top:12px; left:120px; display:flex; gap:8px; z-index:99; }
+  .share button { background:transparent; color:var(--accent-dark); border:1px solid #ddd; padding:6px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
   .note { position:absolute; bottom:14px; right:14px; font-size:12px; color:var(--muted); z-index:99; }
   .cover { position:absolute; inset:0; background:linear-gradient(180deg,#f7fbf8,#f2efe9); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:1000; }
   .cover h1 { font-size:28px; margin:0 0 12px; color:var(--accent-dark); }
@@ -28,6 +30,11 @@
 <div class="wrap">
   <div class="viewer" id="viewer">
     <div class="sound-toggle"><button id="soundBtn">🎵 Sound: ON</button></div>
+    <div class="share">
+      <button id="shareWhats">WhatsApp</button>
+      <button id="shareLinked">LinkedIn</button>
+      <button id="shareEmail">Email</button>
+    </div>
     <div class="counter" id="counter">0 / 0</div>
     <div class="controls"><button id="prevBtn">◀ Prev</button><button id="nextBtn">Next ▶</button></div>
     <div class="note">Use ← → keys to flip</div>
@@ -46,10 +53,13 @@
   const prevBtn=document.getElementById('prevBtn');
   const nextBtn=document.getElementById('nextBtn');
   const soundBtn=document.getElementById('soundBtn');
+  const shareWhats=document.getElementById('shareWhats');
+  const shareLinked=document.getElementById('shareLinked');
+  const shareEmail=document.getElementById('shareEmail');
   const cover=document.getElementById('cover');
   const startBtn=document.getElementById('startBtn');
 
-  const totalPages=80; // ✅ only 80 pages
+  const totalPages=80;
   const pad=n=>String(n).padStart(3,'0');
 
   // ---- Audio ----
@@ -57,13 +67,13 @@
   function ensureAudio(){
     if(audioCtx) return;
     audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-    masterGain=audioCtx.createGain(); masterGain.gain.value=0.3; // louder
+    masterGain=audioCtx.createGain(); masterGain.gain.value=0.4; // 🔊 louder pad
     masterGain.connect(audioCtx.destination);
 
     // Ambient pad
     const o1=audioCtx.createOscillator(), o2=audioCtx.createOscillator();
     o1.type='sine'; o2.type='sine'; o1.frequency.value=110; o2.frequency.value=111;
-    const g1=audioCtx.createGain(), g2=audioCtx.createGain(); g1.gain.value=0.06; g2.gain.value=0.06;
+    const g1=audioCtx.createGain(), g2=audioCtx.createGain(); g1.gain.value=0.08; g2.gain.value=0.08;
     const f=audioCtx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=600;
     o1.connect(g1).connect(f); o2.connect(g2).connect(f); f.connect(masterGain);
     o1.start(); o2.start();
@@ -82,9 +92,9 @@
     const osc=audioCtx.createOscillator(); osc.type='sine'; osc.frequency.value=freq;
     const g=audioCtx.createGain();
     g.gain.setValueAtTime(0.0001,now);
-    g.gain.linearRampToValueAtTime(0.12,now+0.05); // louder flute
-    g.gain.exponentialRampToValueAtTime(0.0001,now+1.2);
-    osc.connect(g).connect(masterGain); osc.start(now); osc.stop(now+1.3);
+    g.gain.linearRampToValueAtTime(0.18,now+0.05); // 🔊 louder flute
+    g.gain.exponentialRampToValueAtTime(0.0001,now+1.5);
+    osc.connect(g).connect(masterGain); osc.start(now); osc.stop(now+1.5);
   }
   function playChime(){
     if(!audioCtx||!soundOn) return;
@@ -97,7 +107,7 @@
     if(!audioCtx) ensureAudio();
     soundOn=!soundOn;
     if(!masterGain) return;
-    masterGain.gain.linearRampToValueAtTime(soundOn?0.3:0.0001,audioCtx.currentTime+0.6);
+    masterGain.gain.linearRampToValueAtTime(soundOn?0.4:0.0001,audioCtx.currentTime+0.6);
     soundBtn.textContent=soundOn?'🎵 Sound: ON':'🔇 Sound: OFF';
   };
 
@@ -128,10 +138,16 @@
     updateUI(false);
   }
 
+  // ---- Sharing ----
+  const pageUrl=window.location.href;
+  shareWhats.onclick=()=>{window.open('https://wa.me/?text='+encodeURIComponent('Flip through Upahaar catalogue: '+pageUrl),'_blank');};
+  shareLinked.onclick=()=>{window.open('https://www.linkedin.com/sharing/share-offsite/?url='+encodeURIComponent(pageUrl),'_blank');};
+  shareEmail.onclick=()=>{window.location.href='mailto:?subject=Upahaar Catalogue&body='+encodeURIComponent('Check the catalogue: '+pageUrl);};
+
   // ---- Start ----
   startBtn.onclick=()=>{
     ensureAudio();
-    audioCtx.resume().then(()=>console.log("🔊 Audio started")); // ✅ force unlock
+    audioCtx.resume().then(()=>console.log("🔊 Audio started"));
     cover.style.display='none';
     initPages();
   };
