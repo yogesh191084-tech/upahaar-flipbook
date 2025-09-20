@@ -151,4 +151,132 @@
     });
 
     // add contact page as last
-    const contactEl = document.createElem
+    const contactEl = document.createElement('div');
+    contactEl.className = 'page';
+    contactEl.dataset.idx = images.length;
+    contactEl.innerHTML = `
+      <div class="contact-card">
+        <h2>Thank you for exploring Upahaar 🎁</h2>
+        <p>We’d love to help you with your corporate gifting needs.</p>
+        <div class="contact-links">
+          <a href="https://api.whatsapp.com/send?phone=9145593366" target="_blank">📱 WhatsApp</a>
+          <a href="mailto:sales@uphaarcorporategifts.com">✉️ Email</a>
+          <a href="https://www.uphaarcorporategifts.com" target="_blank">🌐 Website</a>
+        </div>
+      </div>
+    `;
+    viewer.appendChild(contactEl);
+
+    const pages = Array.from(document.querySelectorAll('.page'));
+    let current = 0;
+    let soundOn = true;
+    let audioCtx = null;
+
+    function playFlipSound(){
+      if(!soundOn) return;
+      try{
+        if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = audioCtx;
+        const now = ctx.currentTime;
+
+        // gentle swoosh + click
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        const g = ctx.createGain();
+        osc.connect(g).connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(0.15, now + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.25);
+
+        const click = ctx.createOscillator();
+        const clickGain = ctx.createGain();
+        click.type = "square";
+        click.connect(clickGain).connect(ctx.destination);
+        click.frequency.setValueAtTime(3000, now);
+        clickGain.gain.setValueAtTime(0.1, now);
+        clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+        click.start(now);
+        click.stop(now + 0.1);
+
+      }catch(e){ console.log('audio err', e); }
+    }
+
+    function updateUI(playSound=true){
+      pages.forEach((p,i)=>{
+        if(i < current) { p.style.transform = 'translateX(-130%)'; p.style.opacity = '0'; }
+        else if(i === current) { p.style.transform = 'translateX(0)'; p.style.opacity = '1'; }
+        else { p.style.transform = 'translateX(130%)'; p.style.opacity = '0'; }
+      });
+      counter.textContent = (current+1) + ' / ' + pages.length;
+      prevBtn.disabled = current === 0;
+      nextBtn.disabled = current === pages.length-1;
+      if(playSound) playFlipSound();
+      window.current = current;
+    }
+
+    window.showPage = function(n){
+      current = Math.max(0, Math.min(pages.length - 1, n));
+      updateUI(true);
+    };
+
+    prevBtn.onclick = ()=> showPage((window.current||0)-1);
+    nextBtn.onclick = ()=> showPage((window.current||0)+1);
+
+    document.addEventListener('keydown', (e)=>{
+      if(e.key === 'ArrowLeft') showPage((window.current||0)-1);
+      if(e.key === 'ArrowRight') showPage((window.current||0)+1);
+    });
+
+    soundBtn.addEventListener('click', ()=>{
+      soundOn = !soundOn;
+      soundBtn.textContent = soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF';
+      if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    });
+
+    const pageUrl = window.location.href;
+    shareWhats.addEventListener('click', ()=>{
+      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
+      const txt = encodeURIComponent('Flip through Upahaar catalogue: ' + (pageUrl.split('?')[0] + '?p=' + pageNum));
+      window.open('https://api.whatsapp.com/send?text=' + txt, '_blank');
+    });
+    shareLinked.addEventListener('click', ()=>{
+      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
+      window.open('https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(pageUrl.split('?')[0] + '?p=' + pageNum), '_blank');
+    });
+    shareEmail.addEventListener('click', ()=>{
+      const pageNum = (typeof window.current === 'number' ? (window.current + 1) : 1);
+      const subj = encodeURIComponent('Upahaar Catalogue');
+      const body = encodeURIComponent('Hi, take a flip through this Upahaar catalogue: ' + (pageUrl.split('?')[0] + '?p=' + pageNum));
+      window.location.href = 'mailto:?subject=' + subj + '&body=' + body;
+    });
+
+    // cover + deep-link
+    const cover = document.getElementById('cover');
+    const startBtn = document.getElementById('startBtn');
+    const urlParams = new URLSearchParams(window.location.search);
+    const pParam = parseInt(urlParams.get('p') || '0', 10);
+    if (!isNaN(pParam) && pParam > 0 && pParam <= pages.length) {
+      cover.style.display = 'none';
+      current = Math.max(0, Math.min(pages.length - 1, pParam - 1));
+      updateUI(false);
+    } else {
+      cover.style.display = 'flex';
+    }
+
+    if (startBtn) {
+      startBtn.onclick = () => {
+        cover.style.display = 'none';
+        if (typeof window.current === 'undefined' || window.current === null) current = 0;
+        updateUI(false);
+      };
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>
